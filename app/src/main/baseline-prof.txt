@@ -1,0 +1,5 @@
+# Hand-written baseline profile: compile all of the app's own code ahead of time at install. A
+# generated profile would need an emulator (generation installs, runs and uninstalls the app, which on
+# the phone would wipe its data). Compose and the other libraries ship their own profiles.
+HSPLdev/eduarddragu/anotherhabittracker/**->**(**)**
+Ldev/eduarddragu/anotherhabittracker/**;

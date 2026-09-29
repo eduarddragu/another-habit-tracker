@@ -1,0 +1,27 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Signing material and credentials never live in the repo
+*.jks
+*.keystore
+*.p12
+keystore.properties
+signing.properties
+
+# Personal data: exports and backups stay on the phone / Drive
+exports/
+*.aht.json
+.kotlin

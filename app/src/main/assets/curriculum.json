@@ -1,0 +1,1807 @@
+{
+  "version": 1,
+  "areas": [
+    {
+      "id": "linux",
+      "name": "Linux",
+      "weight": 1.2
+    },
+    {
+      "id": "net",
+      "name": "Networking",
+      "weight": 1.2
+    },
+    {
+      "id": "virt",
+      "name": "Virtualization",
+      "weight": 1.0
+    },
+    {
+      "id": "ctr",
+      "name": "Containers",
+      "weight": 1.0
+    },
+    {
+      "id": "k8s",
+      "name": "Kubernetes",
+      "weight": 0.8
+    },
+    {
+      "id": "aws",
+      "name": "AWS",
+      "weight": 1.0
+    },
+    {
+      "id": "gcp",
+      "name": "GCP",
+      "weight": 0.5
+    },
+    {
+      "id": "dist",
+      "name": "Distributed systems",
+      "weight": 1.2
+    },
+    {
+      "id": "db",
+      "name": "Databases",
+      "weight": 1.0
+    },
+    {
+      "id": "obs",
+      "name": "Observability",
+      "weight": 1.0
+    },
+    {
+      "id": "sec",
+      "name": "Security",
+      "weight": 1.0
+    },
+    {
+      "id": "iac",
+      "name": "IaC",
+      "weight": 0.5
+    },
+    {
+      "id": "go",
+      "name": "Go",
+      "weight": 0.7
+    }
+  ],
+  "topics": [
+    {
+      "id": "linux-boot",
+      "area": "linux",
+      "title": "Linux boot: from UEFI to PID 1",
+      "requires": [],
+      "hints": [
+        "What do the firmware (BIOS/UEFI) and the bootloader (GRUB) actually do?",
+        "What is the initramfs for, and when can't you boot without it?",
+        "What happens between loading the kernel and starting PID 1?",
+        "Reading a boot with dmesg and systemd-analyze"
+      ]
+    },
+    {
+      "id": "linux-processes",
+      "area": "linux",
+      "title": "Processes: fork, exec, states and signals",
+      "requires": [],
+      "hints": [
+        "fork() vs exec(): why are they two separate calls?",
+        "Process states (R, S, D, Z, T): what does D mean and why is it dangerous?",
+        "Zombies and orphans: who reaps them?",
+        "SIGTERM vs SIGKILL vs SIGHUP: which ones can be caught?"
+      ]
+    },
+    {
+      "id": "linux-fs",
+      "area": "linux",
+      "title": "Filesystems: VFS, inodes and mounts",
+      "requires": [],
+      "hints": [
+        "What is an inode, and what does it NOT contain?",
+        "Hard links vs symlinks at the inode level",
+        "Journaling: what does ext4 protect against in a crash?",
+        "What happens on mount, and on a bind mount?"
+      ]
+    },
+    {
+      "id": "linux-perms",
+      "area": "linux",
+      "title": "Users, permissions and capabilities",
+      "requires": [
+        "linux-processes"
+      ],
+      "hints": [
+        "The x bit on a directory: what does it mean?",
+        "setuid, setgid and the sticky bit",
+        "Capabilities: why was root split into pieces?",
+        "Real, effective and saved UID"
+      ]
+    },
+    {
+      "id": "linux-memory",
+      "area": "linux",
+      "title": "Virtual memory, page cache and the OOM killer",
+      "requires": [
+        "linux-processes"
+      ],
+      "hints": [
+        "Virtual memory and page tables: why does every process see the same address space?",
+        "RSS vs VSZ vs PSS: which one to look at, and when?",
+        "Page cache: why 'free' shows little free memory and that's fine",
+        "Overcommit and the OOM killer: how is the victim chosen (oom_score)?"
+      ]
+    },
+    {
+      "id": "linux-scheduler",
+      "area": "linux",
+      "title": "CPU scheduler: CFS/EEVDF, priorities, context switches",
+      "requires": [
+        "linux-processes"
+      ],
+      "hints": [
+        "How does the scheduler decide who runs next (vruntime)?",
+        "nice vs real-time priorities",
+        "Voluntary vs involuntary context switches: where do you see them?",
+        "CPU affinity and why it matters on NUMA machines"
+      ]
+    },
+    {
+      "id": "linux-systemd",
+      "area": "linux",
+      "title": "systemd: units, dependencies and journald",
+      "requires": [
+        "linux-boot",
+        "linux-processes"
+      ],
+      "hints": [
+        "Unit types: service, socket, timer, target",
+        "Requires vs Wants vs After: ordering vs dependency",
+        "Restart policies and rate limiting (StartLimitBurst)",
+        "journald: where logs end up and how to query them"
+      ]
+    },
+    {
+      "id": "linux-syscalls",
+      "area": "linux",
+      "title": "System calls and strace",
+      "requires": [
+        "linux-processes"
+      ],
+      "hints": [
+        "User space vs kernel space: what happens during a syscall?",
+        "Read the output of 'strace cat /etc/hostname' line by line",
+        "vDSO: syscalls that never enter the kernel",
+        "What does a syscall cost, and why does it matter?"
+      ]
+    },
+    {
+      "id": "linux-io",
+      "area": "linux",
+      "title": "Storage I/O: block layer, fsync and dirty pages",
+      "requires": [
+        "linux-fs",
+        "linux-memory"
+      ],
+      "hints": [
+        "The path of a write() down to the disk",
+        "Dirty pages and writeback: when is data really on disk?",
+        "fsync, O_DIRECT and why databases use them",
+        "Reading iostat -x: await, %util, queue depth"
+      ]
+    },
+    {
+      "id": "linux-namespaces",
+      "area": "linux",
+      "title": "Namespaces",
+      "requires": [
+        "linux-perms"
+      ],
+      "hints": [
+        "Which namespaces exist, and what does each one isolate?",
+        "unshare and nsenter by hand",
+        "User namespaces: root inside, unprivileged outside",
+        "How to see a process's namespaces in /proc/<pid>/ns"
+      ]
+    },
+    {
+      "id": "linux-cgroups",
+      "area": "linux",
+      "title": "cgroups v1 vs v2",
+      "requires": [
+        "linux-memory"
+      ],
+      "hints": [
+        "Differences between v1 and v2 (the unified hierarchy)",
+        "CPU: weight vs quota (CFS bandwidth) and throttling",
+        "Memory: memory.max vs memory.high, and what happens at the limit",
+        "Where do you find a container's cgroups on a node?"
+      ]
+    },
+    {
+      "id": "linux-perf-analysis",
+      "area": "linux",
+      "title": "Performance analysis: the USE method and basic tools",
+      "requires": [
+        "linux-io",
+        "linux-scheduler"
+      ],
+      "hints": [
+        "Load average on Linux: why does D state count too?",
+        "USE method: utilization, saturation and errors for every resource",
+        "Brendan Gregg's '60 seconds': uptime, vmstat, mpstat, pidstat, iostat, sar",
+        "How do you read a flame graph?"
+      ]
+    },
+    {
+      "id": "linux-ebpf",
+      "area": "linux",
+      "title": "eBPF",
+      "requires": [
+        "linux-syscalls",
+        "linux-perf-analysis"
+      ],
+      "hints": [
+        "What is eBPF, and why does it need a verifier?",
+        "Attach points: kprobes, tracepoints, XDP, tc",
+        "Maps: how the kernel and user space talk",
+        "A bpftrace one-liner: count syscalls per process"
+      ]
+    },
+    {
+      "id": "net-models",
+      "area": "net",
+      "title": "OSI and TCP/IP models, encapsulation and MTU",
+      "requires": [],
+      "hints": [
+        "Which layer do Ethernet, IP, TCP, TLS and HTTP live at?",
+        "Encapsulation: how many headers does an HTTPS packet carry?",
+        "MTU, MSS and fragmentation",
+        "Path MTU discovery and the classic ICMP black hole"
+      ]
+    },
+    {
+      "id": "net-ip-routing",
+      "area": "net",
+      "title": "IPv4, subnetting, routing and ARP",
+      "requires": [
+        "net-models"
+      ],
+      "hints": [
+        "CIDR in your head: how many hosts in a /27? In a /20?",
+        "How does the kernel choose where to send a packet (longest prefix match)?",
+        "ARP: how do you get from an IP to a MAC?",
+        "Reading 'ip route' and 'ip neigh'"
+      ]
+    },
+    {
+      "id": "net-ipv6",
+      "area": "net",
+      "title": "IPv6",
+      "requires": [
+        "net-ip-routing"
+      ],
+      "hints": [
+        "Address format and types (link-local, global, ULA)",
+        "SLAAC vs DHCPv6, and NDP instead of ARP",
+        "Why (usually) no NAT?",
+        "Dual stack in the cloud and in Kubernetes"
+      ]
+    },
+    {
+      "id": "net-tcp",
+      "area": "net",
+      "title": "TCP: handshake, states and reliability",
+      "requires": [
+        "net-models"
+      ],
+      "hints": [
+        "The three-way handshake and the four-way close",
+        "TIME_WAIT: why it exists and when it becomes a problem",
+        "Sliding window, ACKs and retransmissions",
+        "Reading 'ss -tan': connection states"
+      ]
+    },
+    {
+      "id": "net-tcp-congestion",
+      "area": "net",
+      "title": "TCP congestion control",
+      "requires": [
+        "net-tcp"
+      ],
+      "hints": [
+        "Slow start, congestion avoidance, fast recovery",
+        "CUBIC vs BBR: loss-based vs model-based",
+        "Bandwidth-delay product and buffer sizing",
+        "Bufferbloat"
+      ]
+    },
+    {
+      "id": "net-dns",
+      "area": "net",
+      "title": "DNS: resolution, records and caching",
+      "requires": [
+        "net-ip-routing"
+      ],
+      "hints": [
+        "Recursive vs iterative resolution: follow a 'dig +trace'",
+        "A, AAAA, CNAME, NS, SOA, SRV and TXT records",
+        "TTLs and negative caching",
+        "resolv.conf: search domains and ndots"
+      ]
+    },
+    {
+      "id": "net-tls",
+      "area": "net",
+      "title": "TLS 1.3",
+      "requires": [
+        "net-tcp",
+        "sec-crypto-basics"
+      ],
+      "hints": [
+        "The TLS 1.3 handshake step by step (1-RTT and 0-RTT)",
+        "Certificate chains: who verifies what?",
+        "SNI and ALPN",
+        "mTLS: what changes?"
+      ]
+    },
+    {
+      "id": "net-http",
+      "area": "net",
+      "title": "HTTP/1.1, HTTP/2 and HTTP/3",
+      "requires": [
+        "net-tls"
+      ],
+      "hints": [
+        "Keep-alive and connection pooling",
+        "HTTP/2: multiplexing, streams, HPACK",
+        "Head-of-line blocking: where does it survive in HTTP/2?",
+        "HTTP/3 and QUIC over UDP: what do they fix?"
+      ]
+    },
+    {
+      "id": "net-netfilter",
+      "area": "net",
+      "title": "Netfilter: iptables, nftables and conntrack",
+      "requires": [
+        "net-ip-routing",
+        "net-tcp"
+      ],
+      "hints": [
+        "Tables and chains: the path of a packet",
+        "SNAT, DNAT, MASQUERADE",
+        "conntrack: what is it, and what happens when the table fills up?",
+        "iptables vs nftables"
+      ]
+    },
+    {
+      "id": "net-linux-virtual",
+      "area": "net",
+      "title": "Linux virtual networking: veth, bridges, netns",
+      "requires": [
+        "net-ip-routing",
+        "linux-namespaces"
+      ],
+      "hints": [
+        "Create two network namespaces joined by a veth pair",
+        "The Linux bridge as a virtual switch",
+        "Routing between namespaces and out to the world",
+        "tcpdump inside a namespace"
+      ]
+    },
+    {
+      "id": "net-load-balancing",
+      "area": "net",
+      "title": "Load balancing: L4 vs L7",
+      "requires": [
+        "net-http"
+      ],
+      "hints": [
+        "L4 vs L7: what does each one see?",
+        "Algorithms: round robin, least connections, consistent hashing, power of two choices",
+        "Active vs passive health checks (outlier detection)",
+        "DSR, the PROXY protocol and preserving the client IP"
+      ]
+    },
+    {
+      "id": "net-bgp-anycast",
+      "area": "net",
+      "title": "BGP and anycast",
+      "requires": [
+        "net-ip-routing"
+      ],
+      "hints": [
+        "What is an AS, and how are routes exchanged?",
+        "Path selection: why does one route win?",
+        "Anycast: the same IP in many places",
+        "The Facebook outage of October 2021: what went wrong?"
+      ]
+    },
+    {
+      "id": "net-overlays-vpn",
+      "area": "net",
+      "title": "Overlays and tunnels: VXLAN, GRE, WireGuard, IPsec",
+      "requires": [
+        "net-linux-virtual"
+      ],
+      "hints": [
+        "Why do you need an overlay?",
+        "VXLAN: encapsulation and the VNI",
+        "WireGuard vs IPsec",
+        "Impact on MTU"
+      ]
+    },
+    {
+      "id": "net-cdn-caching",
+      "area": "net",
+      "title": "HTTP caching and CDNs",
+      "requires": [
+        "net-http",
+        "net-dns"
+      ],
+      "hints": [
+        "Cache-Control, ETag and revalidation",
+        "How a CDN picks the edge (DNS vs anycast)",
+        "Cache keys and cache poisoning",
+        "Invalidation: why is it hard?"
+      ]
+    },
+    {
+      "id": "virt-hypervisors",
+      "area": "virt",
+      "title": "Hypervisors: type 1 vs type 2 and hardware virtualization",
+      "requires": [
+        "linux-processes"
+      ],
+      "hints": [
+        "Type 1 vs type 2: examples and differences",
+        "Trap-and-emulate and protection rings",
+        "VT-x/AMD-V: what did they solve?",
+        "Paravirtualization vs full virtualization"
+      ]
+    },
+    {
+      "id": "virt-kvm-qemu",
+      "area": "virt",
+      "title": "KVM, QEMU and virtio",
+      "requires": [
+        "virt-hypervisors"
+      ],
+      "hints": [
+        "Who does what between KVM (kernel) and QEMU (user space)?",
+        "virtio: why are paravirtualized drivers faster?",
+        "libvirt and virsh",
+        "Boot a VM with qemu from the command line"
+      ]
+    },
+    {
+      "id": "virt-memory",
+      "area": "virt",
+      "title": "Memory in VMs: EPT, ballooning, huge pages, NUMA",
+      "requires": [
+        "virt-hypervisors",
+        "linux-memory"
+      ],
+      "hints": [
+        "Shadow page tables vs EPT/NPT",
+        "Ballooning and memory overcommit",
+        "Huge pages: when do they help?",
+        "NUMA and large VMs"
+      ]
+    },
+    {
+      "id": "virt-storage",
+      "area": "virt",
+      "title": "VM storage: disks, snapshots and copy-on-write",
+      "requires": [
+        "virt-hypervisors",
+        "linux-io"
+      ],
+      "hints": [
+        "Thin vs thick provisioning",
+        "Formats: raw, qcow2, vmdk",
+        "Copy-on-write snapshots and delta chains",
+        "Why a snapshot is not a backup"
+      ]
+    },
+    {
+      "id": "virt-networking",
+      "area": "virt",
+      "title": "VM networking: vSwitch, virtio-net, SR-IOV",
+      "requires": [
+        "virt-hypervisors",
+        "net-linux-virtual"
+      ],
+      "hints": [
+        "Bridged, NAT, host-only",
+        "virtio-net and vhost-net",
+        "SR-IOV: bypassing the hypervisor",
+        "Open vSwitch in a nutshell"
+      ]
+    },
+    {
+      "id": "virt-vsphere",
+      "area": "virt",
+      "title": "vSphere: vMotion, DRS, HA",
+      "requires": [
+        "virt-storage"
+      ],
+      "hints": [
+        "ESXi + vCenter architecture",
+        "vMotion: how do you move a running VM?",
+        "DRS vs HA vs Fault Tolerance",
+        "Datastores: VMFS vs NFS vs vSAN"
+      ]
+    },
+    {
+      "id": "virt-live-migration",
+      "area": "virt",
+      "title": "Live migration: pre-copy and post-copy",
+      "requires": [
+        "virt-memory",
+        "virt-networking"
+      ],
+      "hints": [
+        "The pre-copy algorithm and dirty pages",
+        "Post-copy: pros and cons",
+        "Final downtime: what determines it?",
+        "Transparent live migration on GCE"
+      ]
+    },
+    {
+      "id": "virt-microvm",
+      "area": "virt",
+      "title": "MicroVMs and sandboxes: Firecracker, gVisor, Kata",
+      "requires": [
+        "virt-kvm-qemu",
+        "ctr-runtimes"
+      ],
+      "hints": [
+        "Why aren't containers enough for hostile multi-tenancy?",
+        "Firecracker: what did it strip out compared to QEMU?",
+        "gVisor: a kernel in user space",
+        "Kata Containers as a Kubernetes runtime"
+      ]
+    },
+    {
+      "id": "ctr-internals",
+      "area": "ctr",
+      "title": "Container = namespaces + cgroups + rootfs",
+      "requires": [
+        "linux-namespaces",
+        "linux-cgroups",
+        "linux-fs"
+      ],
+      "hints": [
+        "Build a 'container' by hand with unshare and chroot/pivot_root",
+        "Why is a container not a VM?",
+        "PID 1 in a container and signal handling",
+        "What does /proc look like from inside the container?"
+      ]
+    },
+    {
+      "id": "ctr-images",
+      "area": "ctr",
+      "title": "OCI images: layers, overlayfs, registries",
+      "requires": [
+        "ctr-internals"
+      ],
+      "hints": [
+        "Manifest, config, layers: the structure of an OCI image",
+        "overlayfs: lowerdir, upperdir, whiteouts",
+        "Tags vs digests",
+        "What happens during a pull (registry API)?"
+      ]
+    },
+    {
+      "id": "ctr-runtimes",
+      "area": "ctr",
+      "title": "Runtimes: runc, containerd, CRI-O and the shim",
+      "requires": [
+        "ctr-internals"
+      ],
+      "hints": [
+        "OCI runtime spec: what does runc receive?",
+        "containerd and the shim: why does the container survive a daemon restart?",
+        "CRI: how the kubelet talks to the runtime",
+        "Dockershim: why was it removed?"
+      ]
+    },
+    {
+      "id": "ctr-build",
+      "area": "ctr",
+      "title": "Building images: multi-stage, caching, distroless",
+      "requires": [
+        "ctr-images"
+      ],
+      "hints": [
+        "Layer caching: why instruction order matters",
+        "Multi-stage builds",
+        "Distroless, scratch, alpine (watch out for musl)",
+        "BuildKit: cache mounts and build secrets"
+      ]
+    },
+    {
+      "id": "ctr-security",
+      "area": "ctr",
+      "title": "Container security",
+      "requires": [
+        "ctr-internals"
+      ],
+      "hints": [
+        "Rootless mode and user namespaces",
+        "seccomp: filtering syscalls",
+        "AppArmor/SELinux in brief",
+        "Which capabilities does Docker keep by default?"
+      ]
+    },
+    {
+      "id": "ctr-networking",
+      "area": "ctr",
+      "title": "Container networking and CNI",
+      "requires": [
+        "ctr-internals",
+        "net-linux-virtual",
+        "net-netfilter"
+      ],
+      "hints": [
+        "docker0, veth and NAT: follow a packet",
+        "Port mapping with iptables",
+        "What is CNI, and what does a plugin do?",
+        "Containers sharing one netns (the pod pattern)"
+      ]
+    },
+    {
+      "id": "k8s-architecture",
+      "area": "k8s",
+      "title": "Kubernetes architecture and the reconcile loop",
+      "requires": [
+        "ctr-runtimes"
+      ],
+      "hints": [
+        "Control plane and node components",
+        "Desired state and the reconcile loop",
+        "What happens after 'kubectl apply', all the way to the container?",
+        "Why is etcd the only stateful component?"
+      ]
+    },
+    {
+      "id": "k8s-pods",
+      "area": "k8s",
+      "title": "Pods: lifecycle, probes and restarts",
+      "requires": [
+        "k8s-architecture"
+      ],
+      "hints": [
+        "Why is the unit a pod and not a container?",
+        "Pod phases vs container states",
+        "Liveness vs readiness vs startup probes: common mistakes",
+        "Init containers and native sidecars"
+      ]
+    },
+    {
+      "id": "k8s-workloads",
+      "area": "k8s",
+      "title": "Deployments, StatefulSets, DaemonSets, Jobs",
+      "requires": [
+        "k8s-pods"
+      ],
+      "hints": [
+        "Deployment → ReplicaSet → Pod",
+        "Rolling updates: maxSurge and maxUnavailable",
+        "StatefulSets: stable identity and ordering",
+        "Jobs/CronJobs: backoffLimit and concurrencyPolicy"
+      ]
+    },
+    {
+      "id": "k8s-config",
+      "area": "k8s",
+      "title": "ConfigMaps, Secrets and projected volumes",
+      "requires": [
+        "k8s-pods"
+      ],
+      "hints": [
+        "Env vars vs volumes: what updates live?",
+        "Secrets: base64 is not encryption; encryption at rest",
+        "Projected volumes and ServiceAccount tokens",
+        "External Secrets Operator / Secrets Store CSI"
+      ]
+    },
+    {
+      "id": "k8s-scheduling",
+      "area": "k8s",
+      "title": "The scheduler: filtering, scoring, affinity, taints",
+      "requires": [
+        "k8s-pods"
+      ],
+      "hints": [
+        "Filter and score: how is the node chosen?",
+        "Requests vs limits in scheduling",
+        "Affinity/anti-affinity vs topology spread constraints",
+        "Taints and tolerations, priority and preemption"
+      ]
+    },
+    {
+      "id": "k8s-resources",
+      "area": "k8s",
+      "title": "Resource management: QoS, throttling, eviction",
+      "requires": [
+        "k8s-scheduling"
+      ],
+      "hints": [
+        "QoS classes: how are they computed?",
+        "CPU limits → CFS throttling: why is it controversial?",
+        "OOMKilled vs eviction under memory pressure",
+        "Node allocatable vs capacity"
+      ]
+    },
+    {
+      "id": "k8s-services",
+      "area": "k8s",
+      "title": "Services and kube-proxy",
+      "requires": [
+        "k8s-pods",
+        "net-netfilter"
+      ],
+      "hints": [
+        "ClusterIP, NodePort, LoadBalancer, headless",
+        "kube-proxy modes: iptables vs IPVS vs nftables",
+        "EndpointSlices and readiness",
+        "externalTrafficPolicy: Local vs Cluster"
+      ]
+    },
+    {
+      "id": "k8s-dns",
+      "area": "k8s",
+      "title": "DNS in Kubernetes: CoreDNS and ndots",
+      "requires": [
+        "k8s-services",
+        "net-dns"
+      ],
+      "hints": [
+        "DNS names for Services and Pods",
+        "ndots:5: why does it generate useless queries?",
+        "Headless Services and StatefulSets",
+        "NodeLocal DNSCache"
+      ]
+    },
+    {
+      "id": "k8s-cni",
+      "area": "k8s",
+      "title": "Pod networking and CNI",
+      "requires": [
+        "k8s-services",
+        "ctr-networking"
+      ],
+      "hints": [
+        "The Kubernetes network model: one IP per pod, no NAT between pods",
+        "Overlay vs native routing (VPC-native on GKE)",
+        "Calico vs Cilium vs cloud provider CNIs",
+        "IPAM and IP exhaustion"
+      ]
+    },
+    {
+      "id": "k8s-network-policy",
+      "area": "k8s",
+      "title": "NetworkPolicy",
+      "requires": [
+        "k8s-cni"
+      ],
+      "hints": [
+        "Default allow: how do you get to default deny?",
+        "podSelector, namespaceSelector, egress",
+        "Who actually enforces them? (the CNI)",
+        "L7 policies with Cilium"
+      ]
+    },
+    {
+      "id": "k8s-ingress-gateway",
+      "area": "k8s",
+      "title": "Ingress and the Gateway API",
+      "requires": [
+        "k8s-services",
+        "net-load-balancing"
+      ],
+      "hints": [
+        "Limits of the Ingress model",
+        "Gateway API: GatewayClass, Gateway, HTTPRoute and roles",
+        "Controllers: who implements what?",
+        "Container-native load balancing (NEGs on GKE)"
+      ]
+    },
+    {
+      "id": "k8s-storage",
+      "area": "k8s",
+      "title": "Storage: PV, PVC, StorageClass, CSI",
+      "requires": [
+        "k8s-workloads"
+      ],
+      "hints": [
+        "Static vs dynamic provisioning",
+        "Access modes and volumeBindingMode: WaitForFirstConsumer",
+        "CSI: controller plugin and node plugin",
+        "Volume snapshots and resizing"
+      ]
+    },
+    {
+      "id": "k8s-availability",
+      "area": "k8s",
+      "title": "Availability: PDBs, drains, graceful shutdown",
+      "requires": [
+        "k8s-workloads"
+      ],
+      "hints": [
+        "The pod termination sequence",
+        "preStop and the race with endpoint removal",
+        "PDBs and node drains",
+        "Anti-affinity and topology spread across zones"
+      ]
+    },
+    {
+      "id": "k8s-autoscaling",
+      "area": "k8s",
+      "title": "Autoscaling: HPA, VPA, Cluster Autoscaler, Karpenter",
+      "requires": [
+        "k8s-resources"
+      ],
+      "hints": [
+        "The HPA algorithm and the stabilization window",
+        "VPA: why doesn't it get along with an HPA on CPU?",
+        "Cluster Autoscaler vs Karpenter",
+        "KEDA and event-driven scaling"
+      ]
+    },
+    {
+      "id": "k8s-rbac",
+      "area": "k8s",
+      "title": "RBAC and ServiceAccounts",
+      "requires": [
+        "k8s-architecture"
+      ],
+      "hints": [
+        "Roles/ClusterRoles and bindings",
+        "ServiceAccount tokens (bound, projected)",
+        "kubectl auth can-i",
+        "Workload Identity / IRSA: from a Kubernetes SA to a cloud identity"
+      ]
+    },
+    {
+      "id": "k8s-api-machinery",
+      "area": "k8s",
+      "title": "The API server: authentication, admission, watches",
+      "requires": [
+        "k8s-rbac"
+      ],
+      "hints": [
+        "The path of a request: authn → authz → admission → etcd",
+        "Mutating vs validating webhooks; ValidatingAdmissionPolicy (CEL)",
+        "Watches, resourceVersion and optimistic concurrency",
+        "API Priority and Fairness"
+      ]
+    },
+    {
+      "id": "k8s-operators",
+      "area": "k8s",
+      "title": "Controllers, CRDs and operators",
+      "requires": [
+        "k8s-api-machinery"
+      ],
+      "hints": [
+        "Informers, work queues, reconcile",
+        "CRDs and versioning",
+        "Level-triggered vs edge-triggered",
+        "Owner references, garbage collection and finalizers"
+      ]
+    },
+    {
+      "id": "k8s-etcd",
+      "area": "k8s",
+      "title": "etcd",
+      "requires": [
+        "k8s-architecture",
+        "dist-consensus"
+      ],
+      "hints": [
+        "Data model: key-value with revisions (MVCC)",
+        "Compaction and defragmentation",
+        "Backup and restore",
+        "Why does disk latency matter so much?"
+      ]
+    },
+    {
+      "id": "k8s-security",
+      "area": "k8s",
+      "title": "Workload security",
+      "requires": [
+        "k8s-api-machinery",
+        "ctr-security"
+      ],
+      "hints": [
+        "Pod Security Standards: privileged, baseline, restricted",
+        "securityContext: runAsNonRoot, readOnlyRootFilesystem, capabilities",
+        "Policy engines: Kyverno vs OPA Gatekeeper",
+        "Why is escaping a privileged pod so easy?"
+      ]
+    },
+    {
+      "id": "k8s-service-mesh",
+      "area": "k8s",
+      "title": "Service mesh",
+      "requires": [
+        "k8s-services",
+        "net-tls"
+      ],
+      "hints": [
+        "What does an Envoy sidecar do?",
+        "Sidecar vs ambient mode (ztunnel)",
+        "Automatic mTLS and SPIFFE identities",
+        "The cost: latency and complexity"
+      ]
+    },
+    {
+      "id": "k8s-gitops",
+      "area": "k8s",
+      "title": "GitOps: Flux and Argo CD",
+      "requires": [
+        "k8s-operators"
+      ],
+      "hints": [
+        "Pull vs push deployments",
+        "How Flux reconciles (source, kustomize, helm controllers)",
+        "Drift detection",
+        "Secrets in GitOps (SOPS, sealed secrets)"
+      ]
+    },
+    {
+      "id": "k8s-debugging",
+      "area": "k8s",
+      "title": "Debugging in Kubernetes",
+      "requires": [
+        "k8s-services"
+      ],
+      "hints": [
+        "CrashLoopBackOff: where do you start?",
+        "kubectl debug and ephemeral containers",
+        "Events and conditions",
+        "Network debugging: pod → service → endpoint"
+      ]
+    },
+    {
+      "id": "aws-global-infra",
+      "area": "aws",
+      "title": "AWS global infrastructure",
+      "requires": [],
+      "hints": [
+        "Regions, AZs, Local Zones, Wavelength",
+        "Global vs regional vs zonal services",
+        "AZ name vs AZ ID: why isn't us-east-1a the same for everyone?",
+        "Edge locations and CloudFront"
+      ]
+    },
+    {
+      "id": "aws-iam",
+      "area": "aws",
+      "title": "IAM: policy evaluation and roles",
+      "requires": [
+        "aws-global-infra"
+      ],
+      "hints": [
+        "Identity-based vs resource-based policies",
+        "Evaluation logic: explicit deny, allow, implicit deny",
+        "STS AssumeRole and trust policies",
+        "Permission boundaries"
+      ]
+    },
+    {
+      "id": "aws-organizations",
+      "area": "aws",
+      "title": "Organizations, SCPs and multi-account",
+      "requires": [
+        "aws-iam"
+      ],
+      "hints": [
+        "Why multiple accounts?",
+        "SCPs: guardrails, not permissions",
+        "Control Tower and landing zones",
+        "IAM Identity Center (SSO)"
+      ]
+    },
+    {
+      "id": "aws-vpc",
+      "area": "aws",
+      "title": "VPC: subnets, route tables, gateways",
+      "requires": [
+        "aws-global-infra",
+        "net-ip-routing"
+      ],
+      "hints": [
+        "Public vs private subnet: what makes it one or the other?",
+        "Internet Gateway vs NAT Gateway",
+        "Security Groups (stateful) vs NACLs (stateless)",
+        "VPC Flow Logs"
+      ]
+    },
+    {
+      "id": "aws-vpc-connectivity",
+      "area": "aws",
+      "title": "Connectivity: peering, Transit Gateway, PrivateLink",
+      "requires": [
+        "aws-vpc"
+      ],
+      "hints": [
+        "Peering: why isn't it transitive?",
+        "Transit Gateway and its route tables",
+        "VPC endpoints: gateway vs interface (PrivateLink)",
+        "Site-to-site VPN and Direct Connect"
+      ]
+    },
+    {
+      "id": "aws-ec2",
+      "area": "aws",
+      "title": "EC2: instances, Nitro, purchasing options",
+      "requires": [
+        "aws-global-infra",
+        "virt-hypervisors"
+      ],
+      "hints": [
+        "Instance families and naming",
+        "The Nitro System: what did it change?",
+        "On-Demand, Savings Plans, Reserved, Spot",
+        "Placement groups and IMDSv2"
+      ]
+    },
+    {
+      "id": "aws-ebs",
+      "area": "aws",
+      "title": "EBS, instance store and EFS",
+      "requires": [
+        "aws-ec2",
+        "linux-io"
+      ],
+      "hints": [
+        "gp3 vs io2: IOPS and throughput",
+        "Instance store: ephemeral but fast",
+        "Incremental snapshots",
+        "EFS vs FSx: when to use which?"
+      ]
+    },
+    {
+      "id": "aws-elb",
+      "area": "aws",
+      "title": "Elastic Load Balancing: ALB, NLB, GWLB",
+      "requires": [
+        "aws-vpc",
+        "net-load-balancing"
+      ],
+      "hints": [
+        "ALB vs NLB: layers and use cases",
+        "Target groups, health checks, deregistration delay",
+        "Cross-zone load balancing",
+        "GWLB and security appliances"
+      ]
+    },
+    {
+      "id": "aws-route53",
+      "area": "aws",
+      "title": "Route 53",
+      "requires": [
+        "aws-global-infra",
+        "net-dns"
+      ],
+      "hints": [
+        "Public and private hosted zones",
+        "Alias records vs CNAMEs",
+        "Routing policies: weighted, latency, failover, geolocation",
+        "Health checks and DNS failover"
+      ]
+    },
+    {
+      "id": "aws-s3",
+      "area": "aws",
+      "title": "S3: model, consistency, storage classes",
+      "requires": [
+        "aws-iam"
+      ],
+      "hints": [
+        "Strong read-after-write consistency: what does it mean for you?",
+        "Storage classes and lifecycle policies",
+        "Bucket policies vs ACLs vs Block Public Access",
+        "Multipart uploads, prefixes and performance"
+      ]
+    },
+    {
+      "id": "aws-kms",
+      "area": "aws",
+      "title": "KMS and envelope encryption",
+      "requires": [
+        "aws-iam",
+        "sec-crypto-basics"
+      ],
+      "hints": [
+        "Envelope encryption: data keys and KMS keys",
+        "Key policies vs IAM policies",
+        "Key rotation",
+        "Server-side encryption on S3 and EBS"
+      ]
+    },
+    {
+      "id": "aws-rds-aurora",
+      "area": "aws",
+      "title": "RDS vs Aurora",
+      "requires": [
+        "aws-vpc",
+        "db-replication"
+      ],
+      "hints": [
+        "Multi-AZ vs read replicas",
+        "Aurora: distributed storage, 6 copies across 3 AZs",
+        "Failover: timings and the role of DNS",
+        "RDS Proxy"
+      ]
+    },
+    {
+      "id": "aws-dynamodb",
+      "area": "aws",
+      "title": "DynamoDB",
+      "requires": [
+        "aws-iam",
+        "dist-partitioning"
+      ],
+      "hints": [
+        "Partition keys and hot partitions",
+        "On-demand vs provisioned (RCU/WCU)",
+        "GSI vs LSI",
+        "Eventually consistent vs strongly consistent reads"
+      ]
+    },
+    {
+      "id": "aws-messaging",
+      "area": "aws",
+      "title": "SQS, SNS, EventBridge",
+      "requires": [
+        "aws-iam"
+      ],
+      "hints": [
+        "SQS standard vs FIFO, visibility timeout, DLQs",
+        "SNS and fan-out",
+        "EventBridge: buses and rules",
+        "At-least-once delivery: idempotency on the consumer side"
+      ]
+    },
+    {
+      "id": "aws-lambda",
+      "area": "aws",
+      "title": "Lambda",
+      "requires": [
+        "aws-iam",
+        "virt-microvm"
+      ],
+      "hints": [
+        "Execution model and cold starts",
+        "Concurrency: reserved vs provisioned",
+        "Lambda in a VPC: what changed with Hyperplane",
+        "Limits, and when not to use it"
+      ]
+    },
+    {
+      "id": "aws-eks",
+      "area": "aws",
+      "title": "EKS",
+      "requires": [
+        "k8s-cni",
+        "aws-iam",
+        "aws-vpc"
+      ],
+      "hints": [
+        "Managed control plane: what you see and what you don't",
+        "VPC CNI: pods with VPC IPs and per-ENI limits",
+        "IRSA vs EKS Pod Identity",
+        "Managed node groups vs Fargate vs Karpenter"
+      ]
+    },
+    {
+      "id": "aws-observability",
+      "area": "aws",
+      "title": "CloudWatch, CloudTrail, X-Ray",
+      "requires": [
+        "aws-iam",
+        "obs-pillars"
+      ],
+      "hints": [
+        "Metrics, logs and alarms in CloudWatch",
+        "CloudTrail: management events vs data events",
+        "X-Ray and ADOT",
+        "Why can logs cost more than compute?"
+      ]
+    },
+    {
+      "id": "aws-resilience",
+      "area": "aws",
+      "title": "Resilience on AWS: static stability and cell-based design",
+      "requires": [
+        "aws-elb",
+        "dist-resilience"
+      ],
+      "hints": [
+        "Static stability: what does it mean?",
+        "Cell-based architecture and shuffle sharding",
+        "The us-east-1 incident of December 2021: lessons",
+        "AWS Fault Injection Service"
+      ]
+    },
+    {
+      "id": "gcp-borg",
+      "area": "gcp",
+      "title": "From Borg to Kubernetes",
+      "requires": [
+        "k8s-architecture"
+      ],
+      "hints": [
+        "The Borg paper (2015): the main ideas",
+        "Omega and shared-state scheduling",
+        "What made it into Kubernetes and what didn't",
+        "The 'Borg, Omega, and Kubernetes' paper: the lessons"
+      ]
+    },
+    {
+      "id": "gcp-andromeda",
+      "area": "gcp",
+      "title": "Google's network: Andromeda and the global VPC",
+      "requires": [
+        "net-overlays-vpn"
+      ],
+      "hints": [
+        "Why is a GCP VPC global while an AWS VPC is regional?",
+        "Andromeda: SDN and 'hoverboard'",
+        "Shared VPC vs peering vs Private Service Connect",
+        "Premium vs Standard network tier"
+      ]
+    },
+    {
+      "id": "gcp-gke-dataplane-v2",
+      "area": "gcp",
+      "title": "GKE Dataplane V2 (Cilium/eBPF)",
+      "requires": [
+        "k8s-network-policy",
+        "linux-ebpf"
+      ],
+      "hints": [
+        "What does eBPF replace compared to kube-proxy/iptables?",
+        "NetworkPolicy logging",
+        "Differences from Calico",
+        "Known limitations"
+      ]
+    },
+    {
+      "id": "gcp-spanner",
+      "area": "gcp",
+      "title": "Spanner and TrueTime",
+      "requires": [
+        "dist-consensus"
+      ],
+      "hints": [
+        "TrueTime: time as an uncertainty interval",
+        "Commit wait",
+        "Paxos per split",
+        "External consistency"
+      ]
+    },
+    {
+      "id": "dist-fundamentals",
+      "area": "dist",
+      "title": "Partial failure, CAP and PACELC",
+      "requires": [],
+      "hints": [
+        "The eight fallacies of distributed computing",
+        "Partial failure: why can't you tell whether the other node is dead?",
+        "CAP: what it really says (and what it doesn't)",
+        "PACELC"
+      ]
+    },
+    {
+      "id": "dist-clocks",
+      "area": "dist",
+      "title": "Time and clocks",
+      "requires": [
+        "dist-fundamentals"
+      ],
+      "hints": [
+        "Why physical clocks aren't enough (NTP, skew)",
+        "Lamport clocks",
+        "Vector clocks",
+        "Hybrid logical clocks"
+      ]
+    },
+    {
+      "id": "dist-consistency",
+      "area": "dist",
+      "title": "Consistency models",
+      "requires": [
+        "dist-fundamentals"
+      ],
+      "hints": [
+        "Linearizability vs serializability",
+        "Sequential, causal and eventual consistency",
+        "Read-your-writes and monotonic reads",
+        "Which model do the databases you use actually offer?"
+      ]
+    },
+    {
+      "id": "dist-replication",
+      "area": "dist",
+      "title": "Replication: single-leader, multi-leader, leaderless",
+      "requires": [
+        "dist-consistency"
+      ],
+      "hints": [
+        "Synchronous vs asynchronous replication",
+        "Replication lag and the anomalies it causes",
+        "Quorums: R + W > N",
+        "Conflict resolution (LWW, CRDTs)"
+      ]
+    },
+    {
+      "id": "dist-consensus",
+      "area": "dist",
+      "title": "Consensus: Raft",
+      "requires": [
+        "dist-replication",
+        "dist-clocks"
+      ],
+      "hints": [
+        "Leader election and terms",
+        "Log replication and commit",
+        "Why majorities (and odd node counts)?",
+        "Play with the visualization at raft.github.io"
+      ]
+    },
+    {
+      "id": "dist-partitioning",
+      "area": "dist",
+      "title": "Partitioning and consistent hashing",
+      "requires": [
+        "dist-replication"
+      ],
+      "hints": [
+        "Range vs hash partitioning",
+        "Consistent hashing and virtual nodes",
+        "Rebalancing",
+        "Hot keys"
+      ]
+    },
+    {
+      "id": "dist-transactions",
+      "area": "dist",
+      "title": "Distributed transactions: 2PC, sagas, idempotency",
+      "requires": [
+        "dist-consistency"
+      ],
+      "hints": [
+        "2PC and the coordinator problem",
+        "Sagas and compensation",
+        "Idempotency keys",
+        "Exactly-once: does it really exist?"
+      ]
+    },
+    {
+      "id": "dist-resilience",
+      "area": "dist",
+      "title": "Resilience patterns",
+      "requires": [
+        "dist-fundamentals"
+      ],
+      "hints": [
+        "Retries with exponential backoff and jitter",
+        "Timeouts and deadline propagation",
+        "Circuit breakers and bulkheads",
+        "Load shedding and retry storms"
+      ]
+    },
+    {
+      "id": "dist-streaming",
+      "area": "dist",
+      "title": "Distributed logs: Kafka",
+      "requires": [
+        "dist-partitioning"
+      ],
+      "hints": [
+        "Topics, partitions, offsets",
+        "Consumer groups and rebalancing",
+        "ISR, acks and durability",
+        "Delivery semantics"
+      ]
+    },
+    {
+      "id": "db-storage-engines",
+      "area": "db",
+      "title": "Storage engines: B-trees vs LSM trees",
+      "requires": [
+        "linux-io"
+      ],
+      "hints": [
+        "B-trees: pages and in-place updates",
+        "LSM: memtables, SSTables, compaction",
+        "Write amplification vs read amplification",
+        "Who uses what (Postgres, RocksDB, Cassandra)?"
+      ]
+    },
+    {
+      "id": "db-indexes",
+      "area": "db",
+      "title": "Indexes and query plans",
+      "requires": [
+        "db-storage-engines"
+      ],
+      "hints": [
+        "How a B-tree index speeds up a query",
+        "Composite indexes: column order matters",
+        "Covering indexes and index-only scans",
+        "Reading an EXPLAIN ANALYZE"
+      ]
+    },
+    {
+      "id": "db-isolation",
+      "area": "db",
+      "title": "Transactions and isolation levels",
+      "requires": [
+        "db-storage-engines"
+      ],
+      "hints": [
+        "ACID: what does each letter guarantee?",
+        "Anomalies: dirty reads, non-repeatable reads, phantoms, write skew",
+        "Read committed vs repeatable read vs serializable",
+        "Locking vs MVCC"
+      ]
+    },
+    {
+      "id": "db-postgres-mvcc",
+      "area": "db",
+      "title": "Postgres: MVCC and vacuum",
+      "requires": [
+        "db-isolation"
+      ],
+      "hints": [
+        "xmin/xmax and tuple visibility",
+        "Why VACUUM is needed, and what bloat is",
+        "Transaction ID wraparound",
+        "Tuning autovacuum"
+      ]
+    },
+    {
+      "id": "db-replication",
+      "area": "db",
+      "title": "WAL, replication and PITR",
+      "requires": [
+        "db-postgres-mvcc",
+        "dist-replication"
+      ],
+      "hints": [
+        "Write-ahead logging: why the log comes first",
+        "Synchronous vs asynchronous streaming replication",
+        "Point-in-time recovery",
+        "Replication slots and their risks"
+      ]
+    },
+    {
+      "id": "db-connections",
+      "area": "db",
+      "title": "Connections and pooling",
+      "requires": [
+        "db-isolation",
+        "net-tcp"
+      ],
+      "hints": [
+        "Why does Postgres struggle with many connections (one process each)?",
+        "PgBouncer: session vs transaction pooling",
+        "Application-side pools and sizing",
+        "Connection storms after a deploy"
+      ]
+    },
+    {
+      "id": "db-redis",
+      "area": "db",
+      "title": "Redis",
+      "requires": [
+        "dist-partitioning"
+      ],
+      "hints": [
+        "Single-threaded: why is it still fast?",
+        "Persistence: RDB vs AOF",
+        "Eviction policies",
+        "Redis Cluster and hash slots"
+      ]
+    },
+    {
+      "id": "db-backup",
+      "area": "db",
+      "title": "Backup and restore: RPO and RTO",
+      "requires": [
+        "db-replication"
+      ],
+      "hints": [
+        "RPO vs RTO",
+        "Logical vs physical backups",
+        "The 3-2-1 rule and immutability",
+        "A backup never restored isn't a backup: how do you test restores?"
+      ]
+    },
+    {
+      "id": "obs-pillars",
+      "area": "obs",
+      "title": "Observability: metrics, logs, traces",
+      "requires": [],
+      "hints": [
+        "Monitoring vs observability",
+        "When to use metrics vs logs vs traces",
+        "Cardinality: what it is and why it costs",
+        "Structured wide events"
+      ]
+    },
+    {
+      "id": "obs-prometheus",
+      "area": "obs",
+      "title": "Prometheus: data model and PromQL",
+      "requires": [
+        "obs-pillars"
+      ],
+      "hints": [
+        "The pull model and service discovery",
+        "Counters, gauges, histograms, summaries",
+        "rate vs irate vs increase",
+        "TSDB: head block, blocks, retention"
+      ]
+    },
+    {
+      "id": "obs-percentiles",
+      "area": "obs",
+      "title": "Histograms and percentiles",
+      "requires": [
+        "obs-prometheus"
+      ],
+      "hints": [
+        "Why the average lies",
+        "Why you can't average percentiles",
+        "Buckets and the estimation error of histogram_quantile",
+        "Native histograms"
+      ]
+    },
+    {
+      "id": "obs-slo",
+      "area": "obs",
+      "title": "SLIs, SLOs and error budgets",
+      "requires": [
+        "obs-percentiles"
+      ],
+      "hints": [
+        "How do you pick a good SLI?",
+        "Error budgets and the policy around them",
+        "Multi-window, multi-burn-rate alerts",
+        "Event-based vs time-window SLOs"
+      ]
+    },
+    {
+      "id": "obs-tracing",
+      "area": "obs",
+      "title": "Distributed tracing and OpenTelemetry",
+      "requires": [
+        "obs-pillars",
+        "net-http"
+      ],
+      "hints": [
+        "Spans, traces and context propagation (traceparent)",
+        "Head sampling vs tail sampling",
+        "The OTel Collector: receivers, processors, exporters",
+        "Correlating traces and logs"
+      ]
+    },
+    {
+      "id": "obs-logging",
+      "area": "obs",
+      "title": "Logging at scale",
+      "requires": [
+        "obs-pillars"
+      ],
+      "hints": [
+        "Structured logs",
+        "Pipelines: agents, aggregation, storage",
+        "Full-text indexing vs label-only (Loki)",
+        "Retention and cost"
+      ]
+    },
+    {
+      "id": "obs-alerting",
+      "area": "obs",
+      "title": "Effective alerting",
+      "requires": [
+        "obs-slo"
+      ],
+      "hints": [
+        "Alerting on symptoms vs causes",
+        "Alert fatigue",
+        "Runbooks",
+        "Page vs ticket"
+      ]
+    },
+    {
+      "id": "obs-incident",
+      "area": "obs",
+      "title": "Incident management and postmortems",
+      "requires": [
+        "obs-alerting"
+      ],
+      "hints": [
+        "Roles: incident commander, comms, ops",
+        "Severity levels",
+        "Blameless postmortems",
+        "Critiques of 'root cause' and the five whys"
+      ]
+    },
+    {
+      "id": "obs-capacity",
+      "area": "obs",
+      "title": "Capacity planning and queueing theory",
+      "requires": [
+        "obs-prometheus",
+        "linux-perf-analysis"
+      ],
+      "hints": [
+        "Little's law",
+        "Utilization and latency: why does everything blow up at 90%?",
+        "USE vs RED",
+        "Load testing"
+      ]
+    },
+    {
+      "id": "sec-crypto-basics",
+      "area": "sec",
+      "title": "Cryptography basics",
+      "requires": [],
+      "hints": [
+        "Symmetric vs asymmetric",
+        "Hashes, HMACs, digital signatures",
+        "Diffie-Hellman and forward secrecy",
+        "Why you don't roll your own crypto"
+      ]
+    },
+    {
+      "id": "sec-pki",
+      "area": "sec",
+      "title": "PKI and certificates",
+      "requires": [
+        "net-tls"
+      ],
+      "hints": [
+        "Root, intermediate and leaf CAs",
+        "Revocation: CRL, OCSP and why it works poorly",
+        "ACME and Let's Encrypt",
+        "cert-manager"
+      ]
+    },
+    {
+      "id": "sec-secrets",
+      "area": "sec",
+      "title": "Secrets management: Vault and rotation",
+      "requires": [
+        "sec-crypto-basics"
+      ],
+      "hints": [
+        "Static vs dynamic secrets",
+        "Vault: seal/unseal and secrets engines",
+        "Rotation",
+        "The 'secret zero' problem"
+      ]
+    },
+    {
+      "id": "sec-oauth-oidc",
+      "area": "sec",
+      "title": "OAuth2, OIDC and JWT",
+      "requires": [
+        "net-http"
+      ],
+      "hints": [
+        "OAuth2 flows: authorization code + PKCE, client credentials",
+        "OIDC: ID tokens vs access tokens",
+        "Anatomy of a JWT and common mistakes",
+        "Workload identity federation (e.g. GitHub Actions → cloud)"
+      ]
+    },
+    {
+      "id": "sec-supply-chain",
+      "area": "sec",
+      "title": "Supply chain security",
+      "requires": [
+        "ctr-images",
+        "sec-crypto-basics"
+      ],
+      "hints": [
+        "SBOMs",
+        "Signing with cosign / Sigstore",
+        "SLSA levels",
+        "Real cases: SolarWinds, the xz backdoor"
+      ]
+    },
+    {
+      "id": "sec-zero-trust",
+      "area": "sec",
+      "title": "Zero trust and BeyondCorp",
+      "requires": [
+        "sec-oauth-oidc",
+        "sec-pki"
+      ],
+      "hints": [
+        "BeyondCorp: the idea",
+        "Identity-aware proxies",
+        "Device trust",
+        "Microsegmentation"
+      ]
+    },
+    {
+      "id": "iac-terraform-internals",
+      "area": "iac",
+      "title": "Terraform internals: state, graph, providers",
+      "requires": [],
+      "hints": [
+        "What's in the state, and why is it needed?",
+        "The dependency graph and parallelism",
+        "Providers as gRPC plugins",
+        "Plan/apply: refresh, diff, drift"
+      ]
+    },
+    {
+      "id": "iac-policy",
+      "area": "iac",
+      "title": "Policy as code: OPA and Rego",
+      "requires": [
+        "iac-terraform-internals"
+      ],
+      "hints": [
+        "Rego in 30 minutes",
+        "conftest on a Terraform plan in JSON",
+        "Gatekeeper vs conftest",
+        "Sentinel: the HashiCorp alternative"
+      ]
+    },
+    {
+      "id": "go-concurrency",
+      "area": "go",
+      "title": "Go: goroutines, channels, select",
+      "requires": [],
+      "hints": [
+        "Goroutines vs threads",
+        "Buffered vs unbuffered channels",
+        "select and timeouts with context",
+        "sync.WaitGroup, Mutex, and when to prefer them over channels"
+      ]
+    },
+    {
+      "id": "go-runtime",
+      "area": "go",
+      "title": "The Go runtime: the GMP scheduler",
+      "requires": [
+        "go-concurrency",
+        "linux-scheduler"
+      ],
+      "hints": [
+        "G, M, P: who's who?",
+        "Work stealing",
+        "Blocking syscalls and the netpoller",
+        "GOMAXPROCS in containers (and CPU limits)"
+      ]
+    },
+    {
+      "id": "go-memory",
+      "area": "go",
+      "title": "Go: memory and the garbage collector",
+      "requires": [
+        "go-runtime",
+        "linux-memory"
+      ],
+      "hints": [
+        "Stack vs heap and escape analysis",
+        "The concurrent tri-color GC",
+        "GOGC and GOMEMLIMIT (and container limits)",
+        "Profiling the heap with pprof"
+      ]
+    }
+  ]
+}

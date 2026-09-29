@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">(Another) Habit Tracker</string>
+    <!-- Used in the home greeting ("Good morning, Eduard"). Change it to yours. -->
+    <string name="owner_name" translatable="false">Eduard</string>
+    <string name="widget_today_label">Today</string>
+    <string name="widget_today_description">What\'s done and what\'s left today, with the study topic</string>
+    <string name="guard_service_label">Scroll guard</string>
+    <string name="guard_service_description">While a habit is still open today, opening an app you chose (Instagram, say) brings up a reminder to do the habit first. The guard only learns which app is in front; it doesn\'t read what the apps show.</string>
+</resources>

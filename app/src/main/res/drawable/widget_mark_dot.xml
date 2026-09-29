@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Today widget: a day still ahead, a dot where its square will be (tinted at runtime). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:width="3dp" android:height="3dp" android:gravity="center">
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFFFF" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#00000000" />
+            <size android:width="10dp" android:height="10dp" />
+        </shape>
+    </item>
+</layer-list>

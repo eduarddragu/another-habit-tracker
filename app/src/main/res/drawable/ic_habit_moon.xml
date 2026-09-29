@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Habit icon: 24dp line drawing, 1.75 stroke. Tinted in code. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M19.5,14.8 C18.5,18.4 15.2,21 11.3,21 C6.6,21 2.9,17.2 2.9,12.6 C2.9,8.7 5.5,5.4 9.1,4.4 C8.4,5.6 8,7 8,8.5 C8,13.1 11.7,16.8 16.3,16.8 C17.4,16.8 18.5,16.6 19.5,14.8 Z"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.75"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
