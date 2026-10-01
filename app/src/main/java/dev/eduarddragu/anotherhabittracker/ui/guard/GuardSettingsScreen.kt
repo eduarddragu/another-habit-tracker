@@ -37,11 +37,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.eduarddragu.anotherhabittracker.HabitApp
+import dev.eduarddragu.anotherhabittracker.domain.GuardWeek
 import dev.eduarddragu.anotherhabittracker.domain.ScrollGuard
 import dev.eduarddragu.anotherhabittracker.guard.GuardActivity
 import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
 import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
+import dev.eduarddragu.anotherhabittracker.ui.components.cardOutline
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
 import dev.eduarddragu.anotherhabittracker.ui.components.rise
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
@@ -66,6 +68,9 @@ class GuardSettingsViewModel(private val app: HabitApp) : ViewModel() {
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
   fun serviceEnabled() = app.guard.serviceEnabled()
+
+  /** "Stopped you 3 times this week, 12 minutes let through." */
+  fun weekLine(): String = GuardWeek.line(GuardWeek.summary(app.guard.days(), app.repository.today()))
 
   /** Minutes used today and minutes let through, for the status line. */
   fun usage(): Pair<Long, Long> = app.guard.budget(app.repository.today()).let { it.usedMillis / 60_000 to it.allowedMillis / 60_000 }
@@ -121,6 +126,8 @@ fun GuardSettingsScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel:
         }
         val (used, allowed) = remember(enabled) { viewModel.usage() }
         if (allowed > 0) Text("$used of $allowed minutes used today.", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+        val week = remember(enabled) { viewModel.weekLine() }
+        Text(week, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
       } else {
         Text("Off. Android only lets you turn it on by hand: Accessibility, then Downloaded apps, then Scroll guard.", style = MaterialTheme.typography.bodyLarge)
         Text(
@@ -128,7 +135,7 @@ fun GuardSettingsScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel:
           style = MaterialTheme.typography.bodySmall,
           color = colors.onSurfaceVariant,
         )
-        Button(onClick = openSettings) { Text("Open Accessibility") }
+        Button(shape = MaterialTheme.shapes.medium, onClick = openSettings) { Text("Open Accessibility") }
       }
       TextAction("Preview", onClick = { context.startActivity(GuardActivity.intent(context, guarded.firstOrNull()?.packageName ?: ScrollGuard.DEFAULT_PACKAGE, preview = true)) })
     }
@@ -142,7 +149,7 @@ fun GuardSettingsScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel:
           TextAction("Remove", onClick = { viewModel.toggle(guardedApp.packageName) })
         }
       }
-      OutlinedButton(onClick = { choosing = true }) { Text("Choose apps") }
+      OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { choosing = true }, border = cardOutline()) { Text("Choose apps") }
     }
 
     if (enabled) {

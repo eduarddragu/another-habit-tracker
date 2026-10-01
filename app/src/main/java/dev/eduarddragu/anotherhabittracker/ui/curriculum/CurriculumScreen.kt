@@ -44,6 +44,7 @@ import dev.eduarddragu.anotherhabittracker.theme.NumeralsSmall
 import dev.eduarddragu.anotherhabittracker.ui.components.Chevron
 import dev.eduarddragu.anotherhabittracker.ui.components.HabitViewModel
 import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
+import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
 import dev.eduarddragu.anotherhabittracker.ui.components.opticalStart
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
@@ -58,9 +59,22 @@ class CurriculumViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app, ha
   fun unmark(topicIds: Set<String>) = viewModelScope.launch { topicIds.forEach { app.repository.unmarkKnown(habitId, it) } }
 
   fun unmarkKnown(topicId: String) = viewModelScope.launch { app.repository.unmarkKnown(habitId, topicId) }
+
+  /** Makes [topicId] today's topic (null goes back to the picker's). */
+  fun studyToday(topicId: String?) = app.repository.keepGoing(habitId, topicId)
 }
 
 private val COVERED = setOf(TopicState.DONE, TopicState.KNOWN)
+
+/** Due reviews listed on the page; the rest are counted. */
+private const val MAX_DUE = 5
+
+/** "SCORED 2 · DUE TODAY", "SCORED 4 · DUE 12 DAYS AGO". */
+private fun dueLine(review: TopicPicker.DueReview, today: java.time.LocalDate): String {
+  val days = today.toEpochDay() - review.due.toEpochDay()
+  val due = when (days) { 0L -> "DUE TODAY"; 1L -> "DUE YESTERDAY"; else -> "DUE $days DAYS AGO" }
+  return "SCORED ${review.score} · $due"
+}
 
 /** Areas and topics with their state; the place to mark what is already known. */
 @Composable
@@ -92,6 +106,39 @@ fun CurriculumScreen(
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
+      }
+    }
+    // Reviews waiting, weakest first: the picker brings one back now and then, this lists them all
+    // and lets one be today's topic.
+    val due = TopicPicker.dueReviews(curriculum, marks.values.toList(), status.today)
+    if (due.isNotEmpty()) {
+      item(key = "due") {
+        Column(Modifier.rise(arrival[1], 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          SectionLabel("Due for review · ${due.size}")
+          due.take(MAX_DUE).forEach { review ->
+            val today = status.pick?.topic?.id == review.topic.id
+            Row(Modifier.fillMaxWidth()) {
+              Column(Modifier.weight(1f).alignByBaseline()) {
+                Text(review.topic.title, style = MaterialTheme.typography.titleSmall)
+                Text(dueLine(review, status.today), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+              }
+              if (today) {
+                Text("TODAY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.alignByBaseline())
+              } else if (!status.doneToday) {
+                val previous = status.pick?.topic?.id.takeIf { status.focused }
+                TextAction(
+                  "Study today",
+                  onClick = {
+                    viewModel.studyToday(review.topic.id)
+                    onUndoable("Today's topic changed") { viewModel.studyToday(previous) }
+                  },
+                  modifier = Modifier.alignByBaseline(),
+                )
+              }
+            }
+          }
+          if (due.size > MAX_DUE) Text("And ${due.size - MAX_DUE} more.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
       }
     }
     curriculum.areas.forEach { area ->

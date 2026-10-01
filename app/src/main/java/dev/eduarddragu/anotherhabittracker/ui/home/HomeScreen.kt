@@ -1,5 +1,25 @@
 package dev.eduarddragu.anotherhabittracker.ui.home
 
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.EnterTransition
+import dev.eduarddragu.anotherhabittracker.domain.HabitKind
+import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
+import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
@@ -80,6 +100,7 @@ import dev.eduarddragu.anotherhabittracker.data.HabitRepository
 import dev.eduarddragu.anotherhabittracker.data.HabitStatus
 import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
 import dev.eduarddragu.anotherhabittracker.domain.Curriculum
+import dev.eduarddragu.anotherhabittracker.domain.Milestones
 import dev.eduarddragu.anotherhabittracker.domain.Motivation
 import dev.eduarddragu.anotherhabittracker.domain.dayCount
 import dev.eduarddragu.anotherhabittracker.domain.Practices
@@ -150,6 +171,8 @@ fun HomeScreen(
   onOpen: (Long) -> Unit,
   onBackup: () -> Unit,
   onGuard: () -> Unit,
+  /** Opens the log form for a finished session: its habit, the minutes it counted, its day. */
+  onLogSession: (habitId: Long, minutes: Int?, day: Long) -> Unit,
   modifier: Modifier = Modifier,
   viewModel: HomeViewModel = viewModel { HomeViewModel(app.repository) },
 ) {
@@ -172,11 +195,111 @@ fun HomeScreen(
       verticalArrangement = Arrangement.SpaceBetween,
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-      Hero(current.today, now, "$done OF ${current.habits.size} DONE", Motivation.line(current.today, everythingDone, streak), intro)
-      val idle = rememberPlanetIdle(waitForEntrance = firstRun)
+      // A focus session turns the planet into its timer, and the page around it into the session.
+      val session by app.sessions.session.collectAsStateWithLifecycle()
+      val tick by rememberSessionTick(app, session)
+      val reduced = rememberReducedMotion()
+      // The session stays on screen until the planet has turned back, so leaving is as soft as arriving.
+      var shown by remember { mutableStateOf(session) }
+      if (session != null) shown = session
+      val morph = remember { Animatable(if (session != null) 1f else 0f) }
+      LaunchedEffect(session != null) {
+        val target = if (session != null) 1f else 0f
+        if (reduced) morph.snapTo(target) else morph.animateTo(target, tween(720, easing = if (session != null) Motion.EaseEntrance else Motion.EaseUi))
+        if (session == null) shown = null
+      }
+      val active = shown
+      val phase = active?.phase(tick)
+      // The ring closes once it's over (not for one too short to count): one calm "done".
+      val closed by animateFloatAsState(if (phase == SessionPhase.FINISHED && active.minutesToLog(tick) != null) 1f else 0f, tween(if (reduced) 0 else Motion.LONG * 2, easing = Motion.EaseEntrance), label = "closed")
+      KeepScreenOn(phase == SessionPhase.RUNNING)
+      val haptics = LocalHapticFeedback.current
+      FinishHaptic(active, tick) { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
+      val study = current.habits.firstOrNull { it.habit.kind == HabitKind.STUDY }
+      var choosing by rememberSaveable { mutableStateOf(false) }
+      // A tap on the planet offers the session for a few seconds, then lets it go.
+      LaunchedEffect(choosing) {
+        if (choosing) {
+          delay(6_000)
+          choosing = false
+        }
+      }
+      val rise24 = with(LocalDensity.current) { 24.dp.roundToPx() }
+      val sizeSpec = tween<androidx.compose.ui.unit.IntSize>(if (reduced) 0 else Motion.LONG, easing = Motion.EaseUi)
+
+      AnimatedContent(
+        targetState = active != null,
+        transitionSpec = { (if (reduced) EnterTransition.None togetherWith ExitTransition.None else fadeThrough()) using SizeTransform { _, _ -> sizeSpec } },
+        label = "top",
+      ) { inSession ->
+        if (inSession && active != null) {
+          SessionHeader(active, tick)
+        } else {
+          // A streak reaching a milestone today takes over the line of the day.
+          val milestone = current.habits.filter { it.doneToday }.firstNotNullOfOrNull { Milestones.line(it.streak) }
+          Hero(current.today, now, "$done OF ${current.habits.size} DONE", milestone ?: Motivation.line(current.today, everythingDone, streak), intro)
+        }
+      }
+      // Still while it's a timer: nothing moves but the arc, once a second.
+      val idle = rememberPlanetIdle(waitForEntrance = firstRun, enabled = active == null)
       // A little more air under the planet than above it: it separates the greeting from the cards.
-      Planet(Modifier.padding(top = 24.dp, bottom = 32.dp), disc = 88.dp, settle = { intro[2].value }, drift = { idle.drift.value }, squash = { idle.squash.value }, breathe = { idle.breathe.value })
-      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      // Tapped, it offers a session; during one, it is the timer.
+      val press = remember { MutableInteractionSource() }
+      val pressed by press.collectIsPressedAsState()
+      val dip by animateFloatAsState(if (pressed && !reduced) 0.97f else 1f, tween(if (pressed) Motion.PRESS else 160, easing = if (pressed) Motion.EasePress else Motion.EaseUi), label = "dip")
+      Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)) {
+        Box(
+          contentAlignment = Alignment.Center,
+          modifier =
+            Modifier.graphicsLayer {
+                scaleX = dip
+                scaleY = dip
+              }
+              .clickable(interactionSource = press, indication = null, enabled = active == null && study != null, onClickLabel = "Offer a focus session", role = Role.Button) { choosing = !choosing },
+        ) {
+          Planet(
+            disc = 88.dp,
+            settle = { intro[2].value },
+            drift = { idle.drift.value },
+            squash = { idle.squash.value },
+            breathe = { idle.breathe.value },
+            morph = { morph.value },
+            // Over (ran out or ended early): no arc left; the closed ring says done when it counted.
+            left = { if (phase == SessionPhase.FINISHED) 0f else active?.left(tick) ?: 1f },
+            paused = { phase == SessionPhase.PAUSED },
+            closed = { closed },
+          )
+          if (active != null) SessionNumerals(active, tick, Modifier.graphicsLayer { alpha = ((morph.value - 0.5f) * 2f).coerceIn(0f, 1f); translationY = if (reduced) 0f else (1f - alpha) * 8.dp.toPx() })
+        }
+        // A fixed slot, so offering the session never pushes the cards around.
+        Box(Modifier.height(64.dp), contentAlignment = Alignment.Center) {
+          androidx.compose.animation.AnimatedVisibility(
+            visible = choosing && active == null && study != null,
+            enter = fadeIn(tween(Motion.LIST, easing = Motion.EaseUi)) + slideInVertically(tween(Motion.LIST, easing = Motion.EaseUi)) { it / 4 },
+            exit = fadeOut(tween(Motion.FADE_OUT)),
+          ) {
+            if (study != null) {
+              val minutes = suggestedMinutes(study)
+              StartSession(minutes, onStart = {
+                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                choosing = false
+                startSession(app, study, minutes)
+              })
+            }
+          }
+        }
+      }
+      AnimatedContent(
+        targetState = active != null,
+        transitionSpec = {
+          if (reduced) EnterTransition.None togetherWith ExitTransition.None
+          else (fadeIn(tween(Motion.ENTRANCE, delayMillis = 240, easing = Motion.EaseEntrance)) + slideInVertically(tween(Motion.ENTRANCE, 240, Motion.EaseEntrance)) { rise24 }) togetherWith fadeOut(tween(Motion.FADE_OUT))
+        },
+        label = "bottom",
+      ) { inSession ->
+      if (inSession && active != null) {
+        SessionCard(app, active, tick, current.habits.firstOrNull { it.habit.id == active.habitId }, viewModel.curriculum, onLog = onLogSession)
+      } else Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!notificationsEnabled) {
           WarningCard("Notifications are off", "Without them there are no reminders.", "Turn on", onEnableNotifications)
         } else if (deliveryProblems.isNotEmpty()) {
@@ -197,6 +320,7 @@ fun HomeScreen(
           onPauseOrDispose {}
         }
         FooterLine(nightly, guardOn, onBackup, onGuard, Modifier.rise(intro.last()))
+      }
       }
     }
   }
@@ -255,7 +379,7 @@ private fun Hero(today: LocalDate, now: LocalTime, progress: String, line: Strin
     Text("${today.format(DATE_FORMAT).uppercase()} · $progress", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rise(intro[0]))
     Spacer(Modifier.height(18.dp))
     val greeting = Motivation.greeting(now, today)
-    val display = MaterialTheme.typography.displaySmall.copy(fontSize = 48.sp, lineHeight = 50.sp, letterSpacing = (-0.5).sp)
+    val display = MaterialTheme.typography.displaySmall.copy(fontSize = 48.sp, lineHeight = 50.sp, letterSpacing = (-1).sp)
     Text("${greeting.lead},", style = display, textAlign = TextAlign.Center, modifier = Modifier.rise(intro[0], 16.dp))
     // The name in the accent italic, revealed left to right while it comes into focus.
     RevealText(
@@ -308,9 +432,10 @@ private fun RevealText(text: String, style: TextStyle, color: Color, progress: (
         .graphicsLayer {
           val p = progress()
           compositingStrategy = if (p < 1f) CompositingStrategy.Offscreen else CompositingStrategy.Auto
-          translationY = (1f - p) * 10.dp.toPx()
+          // Rise and blur match the site's name reveal: 8 each.
+          translationY = (1f - p) * 8.dp.toPx()
           // Whole pixels: a new effect only when the radius actually changes.
-          val blur = ((1f - p) * 10.dp.toPx()).roundToInt().toFloat()
+          val blur = ((1f - p) * 8.dp.toPx()).roundToInt().toFloat()
           renderEffect = if (blur >= 1f) BlurEffect(blur, blur, TileMode.Decal) else null
         }
         .drawWithContent {
@@ -516,7 +641,7 @@ private fun rememberIntro(today: LocalDate): List<Animatable<Float, AnimationVec
             else -> 90L + 70L * card
           }
         )
-        val duration = if (index == 2) 900 else if (index == 3) 1000 else if (outside) 560 else if (play) 480 else 420
+        val duration = if (index == 2) 900 else if (index == 3) 900 else if (outside) 560 else if (play) 480 else 420
         step.animateTo(1f, tween(duration, easing = Motion.EaseEntrance))
       }
     }
@@ -567,8 +692,8 @@ private class PlanetIdle(val drift: State<Float>, val squash: State<Float>, val 
  * system's animations off the planet stays still.
  */
 @Composable
-private fun rememberPlanetIdle(waitForEntrance: Boolean): PlanetIdle {
-  if (rememberReducedMotion()) return remember { PlanetIdle(mutableFloatStateOf(0f), mutableFloatStateOf(1f), mutableFloatStateOf(1f)) }
+private fun rememberPlanetIdle(waitForEntrance: Boolean, enabled: Boolean = true): PlanetIdle {
+  if (rememberReducedMotion() || !enabled) return remember { PlanetIdle(mutableFloatStateOf(0f), mutableFloatStateOf(1f), mutableFloatStateOf(1f)) }
   val loop = rememberInfiniteTransition(label = "planet")
   // After the entrance on a cold start; right away when coming back, so the planet never sits still.
   val start = StartOffset(if (waitForEntrance) 1100 else 0)

@@ -134,7 +134,7 @@ fun BackupScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: Backup
       val uri = nightly.uri
       if (uri == null) {
         Text("Pick a file once, on Google Drive or anywhere else, and the app rewrites it every night.", style = MaterialTheme.typography.bodyLarge)
-        Button(onClick = { chooseNightly.launch(Backups.NIGHTLY_NAME) }, enabled = !busy) { Text("Choose a file") }
+        Button(shape = MaterialTheme.shapes.medium, onClick = { chooseNightly.launch(Backups.NIGHTLY_NAME) }, enabled = !busy) { Text("Choose a file") }
       } else {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
           Column(Modifier.weight(1f)) {
@@ -150,8 +150,8 @@ fun BackupScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: Backup
           TextAction("Change", onClick = { chooseNightly.launch(Backups.NIGHTLY_NAME) }, enabled = !busy)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          Button(onClick = viewModel::saveNow, enabled = !busy) { Text("Save now") }
-          OutlinedButton(onClick = viewModel::stopNightly, enabled = !busy, border = cardOutline()) { Text("Stop") }
+          Button(shape = MaterialTheme.shapes.medium, onClick = viewModel::saveNow, enabled = !busy) { Text("Save now") }
+          OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = viewModel::stopNightly, enabled = !busy, border = cardOutline()) { Text("Stop") }
         }
       }
     }
@@ -159,8 +159,8 @@ fun BackupScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: Backup
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
       SectionLabel("By hand")
       FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { exportCopy.launch(Backups.fileName(viewModel.today())) }, enabled = !busy) { Text("Export a copy") }
-        OutlinedButton(onClick = { importFile.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, enabled = !busy) { Text("Import") }
+        OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { exportCopy.launch(Backups.fileName(viewModel.today())) }, enabled = !busy, border = cardOutline()) { Text("Export a copy") }
+        OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { importFile.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, enabled = !busy, border = cardOutline()) { Text("Import") }
       }
       Text(
         "Importing replaces everything on this phone. What's here now is saved to the app's own folder first, just in case.",

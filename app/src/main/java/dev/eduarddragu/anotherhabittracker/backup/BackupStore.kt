@@ -77,6 +77,8 @@ class BackupStore(private val app: HabitApp) {
     withContext(app.appScope.coroutineContext) {
       folder?.let { atomicWrite(File(it, "before-import-${System.currentTimeMillis()}.json"), encodeAll()) }
       val before = app.repository.restore(file)
+      // The habit it ran on may not exist anymore.
+      withContext(kotlinx.coroutines.Dispatchers.Main) { dev.eduarddragu.anotherhabittracker.reminders.Sessions.clear(app) }
       before.forEach { Notifications.dismiss(app, it.id) }
       val kept = file.habits.map { it.id }.toSet()
       before.filter { it.id !in kept }.forEach { app.scheduler.cancel(it.id) }

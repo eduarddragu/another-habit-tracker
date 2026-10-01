@@ -17,6 +17,10 @@ import dev.eduarddragu.anotherhabittracker.MainActivity
 import dev.eduarddragu.anotherhabittracker.R
 import dev.eduarddragu.anotherhabittracker.data.Habit
 import dev.eduarddragu.anotherhabittracker.domain.HabitKind
+import dev.eduarddragu.anotherhabittracker.domain.FocusSession
+import dev.eduarddragu.anotherhabittracker.domain.RecapText
+import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
+import dev.eduarddragu.anotherhabittracker.domain.Topic
 import dev.eduarddragu.anotherhabittracker.domain.ReminderText
 import dev.eduarddragu.anotherhabittracker.domain.Tone
 
@@ -27,6 +31,15 @@ object Notifications {
   // shifts when a raw resource is added).
   private const val CHANNEL_REMINDERS = "reminders_v4"
   private const val CHANNEL_LAST_CALL = "last_call_v4"
+  /** The Sunday recap: its own category, so it can be turned off without touching reminders. */
+  private const val CHANNEL_RECAP = "recap_v1"
+
+  /** A focus session: the silent countdown, and the chime when it's over. */
+  private const val CHANNEL_SESSION = "session_v1"
+  private const val CHANNEL_SESSION_END = "session_end_v1"
+
+  /** Bumped whenever a channel is added: the set below is created again once. */
+  private const val CHANNELS_VERSION = "v5"
   private val RETIRED_CHANNELS = listOf("reminders", "last_call", "reminders_v2", "last_call_v2", "reminders_v3", "last_call_v3")
 
   // Timings in ms (off, on, off, on...) and amplitudes at full strength: the default amplitude of a
@@ -52,7 +65,7 @@ object Notifications {
   fun createChannels(context: Context) {
     val prefs = context.getSharedPreferences("notifications", Context.MODE_PRIVATE)
     val manager = context.getSystemService(NotificationManager::class.java)
-    if (prefs.getString(KEY_CHANNELS, null) == CHANNEL_REMINDERS && manager.getNotificationChannel(CHANNEL_REMINDERS) != null) return
+    if (prefs.getString(KEY_CHANNELS, null) == CHANNELS_VERSION && manager.getNotificationChannel(CHANNEL_REMINDERS) != null) return
     RETIRED_CHANNELS.forEach(manager::deleteNotificationChannel)
     manager.createNotificationChannels(
       listOf(
@@ -64,9 +77,22 @@ object Notifications {
           description = "The final reminder of the day, when the streak is at stake"
           configure(context, "last_call_chime", LAST_CALL_TIMINGS, LAST_CALL_AMPLITUDES)
         },
+        NotificationChannel(CHANNEL_SESSION, "Session", NotificationManager.IMPORTANCE_LOW).apply {
+          description = "The countdown while a session runs, with today's topic"
+          setSound(null, null)
+          enableVibration(false)
+        },
+        NotificationChannel(CHANNEL_SESSION_END, "Session over", NotificationManager.IMPORTANCE_HIGH).apply {
+          description = "When a session's time is up"
+          configure(context, "reminder_chime", REMINDER_TIMINGS, REMINDER_AMPLITUDES)
+        },
+        NotificationChannel(CHANNEL_RECAP, "Weekly recap", NotificationManager.IMPORTANCE_DEFAULT).apply {
+          description = "Sunday evening: how the week went"
+          configure(context, "reminder_chime", REMINDER_TIMINGS, REMINDER_AMPLITUDES)
+        },
       )
     )
-    prefs.edit { putString(KEY_CHANNELS, CHANNEL_REMINDERS) }
+    prefs.edit { putString(KEY_CHANNELS, CHANNELS_VERSION) }
   }
 
   /**
@@ -115,6 +141,106 @@ object Notifications {
     }
   }
 
+  /**
+   * The session while it runs or is paused: the topic, its questions to check the scope without
+   * opening the app, and a countdown the system keeps by itself.
+   */
+  fun showSession(context: Context, session: FocusSession, habitName: String, topic: Topic?, now: Long) {
+    val manager = NotificationManagerCompat.from(context)
+    if (!manager.areNotificationsEnabled()) return
+    val paused = session.phase(now) == SessionPhase.PAUSED
+    val endWall = System.currentTimeMillis() + session.remaining(now)
+    val ends = java.time.Instant.ofEpochMilli(endWall).atZone(java.time.ZoneId.systemDefault()).toLocalTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    val status = if (paused) "Paused. ${(session.remaining(now) + 59_999) / 60_000} min left." else "Ends $ends"
+    val questions = topic?.hints?.mapIndexed { i, hint -> "${i + 1}. $hint" }?.joinToString("\n")
+    val builder =
+      NotificationCompat.Builder(context, CHANNEL_SESSION)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle(if (paused) "Paused · ${topic?.title ?: habitName}" else topic?.title ?: habitName)
+        .setContentText(status)
+        // A status bar chip with the time left (Android 16+ Live Updates), so the countdown is in view
+        // without opening the shade.
+        .setRequestPromotedOngoing(true)
+        .setShortCriticalText(if (paused) "Paused" else "${(session.remaining(now) + 59_999) / 60_000}m")
+        .setStyle(NotificationCompat.BigTextStyle().bigText(listOfNotNull(status, questions).joinToString("\n\n")))
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .setSilent(true)
+        .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
+        .setContentIntent(homeIntent(context))
+        .setShowWhen(!paused)
+        .setUsesChronometer(!paused)
+        .setChronometerCountDown(true)
+        .setWhen(endWall)
+        .addAction(0, "+5 min", Sessions.action(context, SessionReceiver.ACTION_EXTEND, 910_001))
+        .addAction(0, if (paused) "Resume" else "Pause", Sessions.action(context, if (paused) SessionReceiver.ACTION_RESUME else SessionReceiver.ACTION_PAUSE, 910_002))
+        .addAction(0, "End", Sessions.action(context, SessionReceiver.ACTION_END, 910_003))
+    post(manager, builder)
+  }
+
+  /** Time's up (or ended): a chime, and a way straight to the log form with the minutes filled in. */
+  fun showSessionEnd(context: Context, session: FocusSession, topic: Topic?, now: Long) {
+    val manager = NotificationManagerCompat.from(context)
+    if (!manager.areNotificationsEnabled()) return
+    val minutes = session.minutesToLog(now)
+    val log =
+      Intent(context, MainActivity::class.java)
+        .putExtra(EXTRA_LOG_HABIT_ID, session.habitId)
+        .putExtra(EXTRA_LOG_MINUTES, minutes ?: 0)
+        .putExtra(EXTRA_LOG_DAY, session.day.toEpochDay())
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    val body = if (minutes == null) "Too short to count." else "$minutes minutes${topic?.let { " on ${it.title}" } ?: ""}. Log it while it's fresh."
+    val builder =
+      NotificationCompat.Builder(context, CHANNEL_SESSION_END)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle(if (session.remaining(now) > 0) "Session ended" else "Time's up")
+        .setContentText(body)
+        .setContentIntent(PendingIntent.getActivity(context, 910_004, log, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+        .setAutoCancel(true)
+        .setCategory(NotificationCompat.CATEGORY_ALARM)
+    if (minutes != null) builder.addAction(0, "Log", PendingIntent.getActivity(context, 910_005, log, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+    builder.addAction(0, "+5 min", Sessions.action(context, SessionReceiver.ACTION_EXTEND, 910_006))
+    post(manager, builder)
+  }
+
+  fun dismissSession(context: Context) = NotificationManagerCompat.from(context).cancel(SESSION_ID)
+
+  private fun homeIntent(context: Context): PendingIntent =
+    PendingIntent.getActivity(
+      context,
+      910_007,
+      Intent(context, MainActivity::class.java).putExtra(EXTRA_OPEN_HOME, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+  private fun post(manager: NotificationManagerCompat, builder: NotificationCompat.Builder) {
+    try {
+      manager.notify(SESSION_ID, builder.build())
+    } catch (_: SecurityException) {
+      // Notification permission revoked between the check and the post.
+    }
+  }
+
+  /** The weekly recap; a tap opens Home. */
+  fun showRecap(context: Context, recap: RecapText) {
+    val manager = NotificationManagerCompat.from(context)
+    if (!manager.areNotificationsEnabled()) return
+    val open = Intent(context, MainActivity::class.java).putExtra(EXTRA_OPEN_HOME, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    val builder =
+      NotificationCompat.Builder(context, CHANNEL_RECAP)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle(recap.title)
+        .setContentText(recap.body.lineSequence().firstOrNull())
+        .setStyle(NotificationCompat.BigTextStyle().bigText(recap.body))
+        .setContentIntent(PendingIntent.getActivity(context, RECAP_ID, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+        .setAutoCancel(true)
+    try {
+      manager.notify(RECAP_ID, builder.build())
+    } catch (_: SecurityException) {
+      // Notification permission revoked between the check and the post.
+    }
+  }
+
   fun dismiss(context: Context, habitId: Long) = NotificationManagerCompat.from(context).cancel(notificationId(habitId))
 
   /** Reminders are about a single day: at midnight whatever is still up is stale. */
@@ -141,6 +267,12 @@ object Notifications {
 
   private val REMINDER_CHANNELS = setOf(CHANNEL_REMINDERS, CHANNEL_LAST_CALL)
   private const val KEY_CHANNELS = "channels_created"
+  private const val RECAP_ID = 900_000
+  private const val SESSION_ID = 900_001
+
+  /** With [EXTRA_LOG_HABIT_ID]: minutes to prefill, and the day (epoch day) the session belongs to. */
+  const val EXTRA_LOG_MINUTES = "log_minutes"
+  const val EXTRA_LOG_DAY = "log_day"
 
   private fun notificationId(habitId: Long) = habitId.toInt()
 

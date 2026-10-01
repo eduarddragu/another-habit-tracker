@@ -10,7 +10,8 @@ import androidx.compose.animation.togetherWith
 /**
  * Motion follows eduarddragu.dev: strong ease-outs, nothing that bounces. Interface changes take 200
  * to 420 ms; things arriving take longer (520 ms, 720 ms for a page's main card, about a second for
- * the name on Home) and move short distances (8, 16, 24 or 32dp). Staggers are 60 to 110 ms.
+ * the name on Home) and move short distances (8, 16 or 24dp). Staggers are 70 ms. The same tokens
+ * live on the site as CSS variables (see the shared design framework in the private notes).
  */
 object Motion {
   /** General UI changes, hover-like swaps. */
@@ -25,8 +26,8 @@ object Motion {
    */
   val EaseScreen = CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
 
-  /** Leaving: starts slow and speeds up, so what goes away gets out of the way. */
-  val EaseExit = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+  /** Press-down: instant onset, shared with the site's --ease-press. */
+  val EasePress = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
   /** Symmetric ease for endless loops: soft at both turn-arounds. */
   val EaseLoop = CubicBezierEasing(0.37f, 0f, 0.63f, 1f)
@@ -39,8 +40,15 @@ object Motion {
   const val LIST = 250
   const val LONG = 420
 
-  /** Dismissing a sheet: quicker than its entrance. */
-  const val EXIT = 220
+  /** Dismissing a sheet: quicker than its entrance, still an ease-out (nothing here eases in). */
+  const val EXIT = 200
+
+  /** Things arriving, and the step between them (the site uses the same). */
+  const val ENTRANCE = 520
+  const val STAGGER = 70
+
+  /** Press: down fast, back a little slower. */
+  const val PRESS = 90
 
   /** The commit moment after a log, as offsets from the moment the log sheet is gone. */
   object Commit {
@@ -53,4 +61,4 @@ object Motion {
 }
 
 /** Swap one piece of content for another: out quickly, then in. Never both at once. */
-fun fadeThrough(): ContentTransform = fadeIn(tween(Motion.SHORT, delayMillis = Motion.FADE_OUT, easing = Motion.EaseUi)) togetherWith fadeOut(tween(Motion.FADE_OUT))
+fun fadeThrough(): ContentTransform = fadeIn(tween(Motion.SHORT, delayMillis = Motion.FADE_OUT, easing = Motion.EaseUi)) togetherWith fadeOut(tween(Motion.FADE_OUT, easing = Motion.EaseUi))

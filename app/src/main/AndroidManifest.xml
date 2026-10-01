@@ -5,6 +5,8 @@
     <!-- Granted at install and not revocable; fine for a sideloaded app with user-facing reminders. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- The session countdown as a status bar chip (Live Updates). -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
 
     <!-- Needed to open the app linked to a habit (e.g. a meditation app) and to list launchable apps. -->
     <queries>
@@ -80,6 +82,14 @@
 
         <receiver
             android:name=".reminders.NotificationActionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".reminders.RecapReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".reminders.SessionReceiver"
             android:exported="false" />
 
         <receiver

@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,10 +63,10 @@ import dev.eduarddragu.anotherhabittracker.HabitApp
 import dev.eduarddragu.anotherhabittracker.data.Entry
 import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
 import dev.eduarddragu.anotherhabittracker.domain.HabitKind
-import dev.eduarddragu.anotherhabittracker.domain.LogDefaults
 import dev.eduarddragu.anotherhabittracker.domain.Topic
 import dev.eduarddragu.anotherhabittracker.domain.TopicPicker
 import dev.eduarddragu.anotherhabittracker.reminders.Notifications
+import dev.eduarddragu.anotherhabittracker.reminders.Sessions
 import dev.eduarddragu.anotherhabittracker.theme.Motion
 import dev.eduarddragu.anotherhabittracker.theme.NumeralsSmall
 import dev.eduarddragu.anotherhabittracker.theme.fadeThrough
@@ -76,9 +79,9 @@ import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
 import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
 import dev.eduarddragu.anotherhabittracker.ui.components.gutter
+import dev.eduarddragu.anotherhabittracker.ui.components.pressScale
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -86,6 +89,9 @@ class LogViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app, habitId) 
   fun save(entry: Entry, onDone: () -> Unit) = once {
     val previousStreak = status.value?.streak ?: 0
     app.repository.logSession(entry)
+    // The session this log is for is over: the planet goes back to being a planet.
+    // Only the finished session this log is for: logging yesterday mid-session keeps the timer.
+    app.sessions.session.value?.takeIf { it.habitId == habitId && it.finishedAt != null && it.day == entry.day }?.let { Sessions.clear(app) }
     if (entry.day == app.repository.today()) Notifications.dismiss(app, habitId)
     // The write succeeded: the screen underneath plays it.
     Commits.post(Commit(habitId, entry.day, previousStreak))
@@ -138,6 +144,10 @@ fun LogScreen(
   modifier: Modifier = Modifier,
   /** Set to correct a session already logged instead of logging a new one. */
   entryId: Long? = null,
+  /** Set to log a new session for this day (epoch day), fixed: a frozen or missed day, from the habit's page. */
+  onDay: Long? = null,
+  /** Minutes a finished session counted; shown as its own chip when they aren't a preset. */
+  prefillMinutes: Int? = null,
   viewModel: LogViewModel = viewModel(key = "log-$habitId-${entryId ?: "new"}") { LogViewModel(app, habitId) },
 ) {
   val status by viewModel.status.collectAsStateWithLifecycle()
@@ -150,12 +160,11 @@ fun LogScreen(
   // The day is fixed when the form opens: left open across midnight, it still logs for the day it said.
   val openedOn = rememberSaveable { app.repository.today().toEpochDay() }
   val editing = entryId != null
-  // In the small hours with yesterday still empty, the session is almost certainly yesterday's.
-  var yesterday by rememberSaveable {
-    mutableStateOf(!editing && LogDefaults.startOnYesterday(LocalTime.now(), yesterdayLogged = current.cells[LocalDate.ofEpochDay(openedOn).minusDays(1)] != null))
-  }
+  // A day asked for from the habit's page (yesterday, or a frozen day) is fixed; otherwise it's today.
+  // There is no switch in the form: logging for another day starts from that day on the habit's page.
+  val fixedDay = onDay?.takeIf { !editing }?.let(LocalDate::ofEpochDay)?.takeIf { it != LocalDate.ofEpochDay(openedOn) }
   var score by rememberSaveable { mutableStateOf<Int?>(null) }
-  var minutes by rememberSaveable { mutableStateOf<Int?>(null) }
+  var minutes by rememberSaveable { mutableStateOf(prefillMinutes) }
   var note by rememberSaveable { mutableStateOf("") }
   var extraTopics by rememberSaveable { mutableStateOf("") }
   var track by rememberSaveable { mutableStateOf("") }
@@ -163,7 +172,7 @@ fun LogScreen(
   var details by rememberSaveable { mutableStateOf(false) }
   // Study sessions default to today's pick.
   var topicId by rememberSaveable { mutableStateOf(current.pick?.topic?.id) }
-  // Until the topic is changed by hand, it follows the day: "Yesterday" switches it to yesterday's pick.
+  // Once the topic is changed by hand, the day no longer sets it.
   var topicChosen by rememberSaveable { mutableStateOf(false) }
   // Editing: the form starts from the session as it was logged.
   var editDay by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -186,19 +195,24 @@ fun LogScreen(
     loaded = true
   }
   var confirmingDelete by rememberSaveable { mutableStateOf(false) }
-  LaunchedEffect(yesterday) {
-    if (!study || topicChosen || editing) return@LaunchedEffect
-    val day = LocalDate.ofEpochDay(openedOn)
-    topicId = if (yesterday) viewModel.topicOn(day.minusDays(1)) else current.pick?.topic?.id
+  // Another day's session gets that day's topic; Save waits for it, and a topic picked by hand
+  // meanwhile wins.
+  var dayTopicLoaded by rememberSaveable { mutableStateOf(!study || editing || fixedDay == null) }
+  LaunchedEffect(fixedDay) {
+    if (dayTopicLoaded || fixedDay == null) return@LaunchedEffect
+    val topic = viewModel.topicOn(fixedDay)
+    if (!topicChosen) topicId = topic
+    dayTopicLoaded = true
   }
   var pickingTopic by rememberSaveable { mutableStateOf(false) }
 
   val needsScore = study && score == null
-  val canSave = !busy && !needsScore
+  val canSave = !busy && !needsScore && dayTopicLoaded
 
   // No haptic here: the confirmation lands with the square filling in, on the screen underneath.
   fun save() {
-    val day = LocalDate.ofEpochDay(openedOn).let { if (yesterday) it.minusDays(1) else it }
+    val today = LocalDate.ofEpochDay(openedOn)
+    val day = fixedDay ?: today
     val entry =
       Entry(
         habitId = habit.id,
@@ -217,7 +231,15 @@ fun LogScreen(
       viewModel.update(entry.copy(id = original, day = day, loggedAt = editLoggedAt ?: entry.loggedAt)) { onDone("Session updated") }
       return
     }
-    viewModel.save(entry) { onDone(if (yesterday) "Logged for yesterday" else null) }
+    viewModel.save(entry) {
+      onDone(
+        when {
+          day == today -> null
+          day == today.minusDays(1) -> "Logged for yesterday"
+          else -> "Logged for ${day.format(EDIT_DAY_FORMAT)}"
+        }
+      )
+    }
   }
 
   Column(modifier) {
@@ -230,7 +252,8 @@ fun LogScreen(
           Text(
             when {
               editing -> "FOR " + (editDay?.let { LocalDate.ofEpochDay(it).format(EDIT_DAY_FORMAT).uppercase() } ?: "")
-              yesterday -> "FOR YESTERDAY"
+              fixedDay == LocalDate.ofEpochDay(openedOn).minusDays(1) -> "FOR YESTERDAY"
+              fixedDay != null -> "FOR " + fixedDay.format(EDIT_DAY_FORMAT).uppercase()
               else -> "FOR TODAY"
             },
             style = MaterialTheme.typography.labelMedium,
@@ -238,7 +261,6 @@ fun LogScreen(
             modifier = Modifier.weight(1f).alignByBaseline(),
           )
           if (editing) TextAction("Delete session", onClick = { confirmingDelete = true }, modifier = Modifier.alignByBaseline(), enabled = !busy)
-          else TextAction(if (yesterday) "Today instead" else "Yesterday", onClick = { yesterday = !yesterday }, modifier = Modifier.alignByBaseline())
         }
       }
 
@@ -274,7 +296,9 @@ fun LogScreen(
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("How long?", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          (if (study) STUDY_MINUTES else SIMPLE_MINUTES).forEach { preset ->
+          // A session's real length stays as it was, before the presets, rather than rounded into one.
+          val presets = if (study) STUDY_MINUTES else SIMPLE_MINUTES
+          (listOfNotNull(prefillMinutes?.takeIf { it !in presets }) + presets).forEach { preset ->
             FilterChip(
               selected = minutes == preset,
               onClick = {
@@ -287,7 +311,7 @@ fun LogScreen(
         }
       }
 
-      OutlinedTextField(note, { note = it }, label = { Text("Notes") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+      OutlinedTextField(note, { note = it }, label = { Text("Notes") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), minLines = 2, modifier = Modifier.fillMaxWidth())
 
       if (study) {
         // Optional study details stay folded until asked for.
@@ -305,15 +329,15 @@ fun LogScreen(
             exit = shrinkVertically(tween(Motion.SHORT, easing = Motion.EaseUi)) + fadeOut(tween(100)),
           ) {
             Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-              OutlinedTextField(extraTopics, { extraTopics = it }, label = { Text("Other topics studied") }, modifier = Modifier.fillMaxWidth())
-              OutlinedTextField(track, { track = it }, label = { Text("Course or book") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-              OutlinedTextField(module, { module = it }, label = { Text("Module or chapter") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+              OutlinedTextField(extraTopics, { extraTopics = it }, label = { Text("Other topics studied") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), modifier = Modifier.fillMaxWidth())
+              OutlinedTextField(track, { track = it }, label = { Text("Course or book") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
+              OutlinedTextField(module, { module = it }, label = { Text("Module or chapter") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), singleLine = true, modifier = Modifier.fillMaxWidth())
             }
           }
         }
       }
 
-      if (current.canFreezeToday && !yesterday && !editing) {
+      if (current.canFreezeToday && !editing && fixedDay == null) {
         TextAction("Freeze today instead (once a week)", onClick = { viewModel.freezeToday { ok -> onDone(if (ok) null else "Freeze not available") } }, enabled = !busy)
       }
     }
@@ -329,7 +353,7 @@ fun LogScreen(
       }
       // The button reads back what will be saved.
       val summary = listOfNotNull(if (editing) "Save changes" else "Save", score?.takeIf { study }?.let { "$it/5" }, minutes?.let { "$it min" }).joinToString(" · ")
-      Button(enabled = canSave, modifier = Modifier.fillMaxWidth(), onClick = ::save) { Text(summary) }
+      Button(shape = MaterialTheme.shapes.medium, enabled = canSave, modifier = Modifier.fillMaxWidth(), onClick = ::save) { Text(summary) }
     }
   }
 
@@ -367,7 +391,7 @@ fun LogScreen(
 
 /**
  * Five squares, 1 to 5, each in the heatmap colour its score will leave: the square tapped here is
- * the square that fills in later. The chosen one fills and settles from 0.9 to full size.
+ * the square that fills in later. The chosen one fills in; a press dips it like any control.
  */
 @Composable
 private fun ScoreSquares(selected: Int?, onPick: (Int) -> Unit) {
@@ -379,13 +403,9 @@ private fun ScoreSquares(selected: Int?, onPick: (Int) -> Unit) {
       val level = when (value) { 1, 2 -> 1; 3 -> 2; 4 -> 3; else -> 4 }
       val target = if (chosen) colors.primary.copy(alpha = LEVEL_ALPHA[level]) else colors.surfaceContainerLow
       val fill by animateColorAsState(target, tween(if (chosen) 180 else 120, easing = Motion.EaseUi), label = "score")
-      val scale = remember { Animatable(1f) }
-      LaunchedEffect(chosen) {
-        if (chosen) {
-          scale.snapTo(0.9f)
-          scale.animateTo(1f, tween(180, easing = Motion.EaseUi))
-        }
-      }
+      // Pressed, it dips like every other control; chosen, only the fill says so (no jump).
+      val interaction = remember { MutableInteractionSource() }
+      val scale = pressScale(interaction)
       val strong = chosen && level >= 3
       Box(
         Modifier.weight(1f)
@@ -396,7 +416,7 @@ private fun ScoreSquares(selected: Int?, onPick: (Int) -> Unit) {
           }
           .clip(MaterialTheme.shapes.medium)
           .drawBehind { drawRect(fill) }
-          .selectable(chosen, role = Role.RadioButton) { onPick(value) },
+          .selectable(chosen, interactionSource = interaction, indication = null, role = Role.RadioButton) { onPick(value) },
         contentAlignment = Alignment.Center,
       ) {
         Text(value.toString(), style = NumeralsSmall, color = if (strong) colors.onPrimary else colors.onSurface)

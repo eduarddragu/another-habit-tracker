@@ -19,6 +19,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
 import androidx.lifecycle.lifecycleScope
 import dev.eduarddragu.anotherhabittracker.reminders.Notifications
+import dev.eduarddragu.anotherhabittracker.reminders.Sessions
 import dev.eduarddragu.anotherhabittracker.theme.AnotherHabitTrackerTheme
 import dev.eduarddragu.anotherhabittracker.widget.HabitWidgets
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +28,9 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
   private var pendingLogHabitId by mutableStateOf<Long?>(null)
+  /** From a finished session: the minutes to prefill and the day it belongs to. */
+  private var pendingLogMinutes by mutableStateOf<Int?>(null)
+  private var pendingLogDay by mutableStateOf<Long?>(null)
   private var pendingOpenHabitId by mutableStateOf<Long?>(null)
   private var pendingHome by mutableStateOf(false)
   private var notificationsEnabled by mutableStateOf(true)
@@ -61,7 +65,13 @@ class MainActivity : ComponentActivity() {
             deliveryProblems = deliveryProblems,
             onEnableNotifications = ::enableNotifications,
             pendingLogHabitId = pendingLogHabitId,
-            onPendingLogConsumed = { pendingLogHabitId = null },
+            pendingLogMinutes = pendingLogMinutes,
+            pendingLogDay = pendingLogDay,
+            onPendingLogConsumed = {
+              pendingLogHabitId = null
+              pendingLogMinutes = null
+              pendingLogDay = null
+            },
             pendingOpenHabitId = pendingOpenHabitId,
             onPendingOpenConsumed = { pendingOpenHabitId = null },
             pendingHome = pendingHome,
@@ -76,6 +86,8 @@ class MainActivity : ComponentActivity() {
     super.onResume()
     // The user may have changed notification or battery settings while away.
     refreshDeliveryState()
+    // A session whose end alarm was lost (the phone off at the time) is finished now.
+    Sessions.settle(application as HabitApp)
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -108,6 +120,8 @@ class MainActivity : ComponentActivity() {
     // Action buttons, unlike a tap on the notification body, don't dismiss the notification.
     if (logId >= 0) {
       Notifications.dismiss(this, logId)
+      pendingLogMinutes = intent.getIntExtra(Notifications.EXTRA_LOG_MINUTES, 0).takeIf { it > 0 }
+      pendingLogDay = intent.getLongExtra(Notifications.EXTRA_LOG_DAY, Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }
       pendingLogHabitId = logId
     } else if (openId >= 0) {
       pendingOpenHabitId = openId

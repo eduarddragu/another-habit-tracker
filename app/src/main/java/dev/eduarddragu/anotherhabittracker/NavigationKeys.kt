@@ -11,8 +11,11 @@ import kotlinx.serialization.Serializable
 
 @Serializable data class HabitDetail(val habitId: Long) : NavKey
 
-/** The log form; with [entryId], correcting a session already logged. */
-@Serializable data class LogEntry(val habitId: Long, val entryId: Long? = null) : NavKey
+/**
+ * The log form; with [entryId], correcting a session already logged; with [onDay] (an epoch day), a
+ * new session for that day, e.g. one that was frozen or missed.
+ */
+@Serializable data class LogEntry(val habitId: Long, val entryId: Long? = null, val onDay: Long? = null, val minutes: Int? = null) : NavKey
 
 @Serializable data class HabitSettings(val habitId: Long) : NavKey
 
