@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +42,7 @@ import dev.eduarddragu.anotherhabittracker.domain.ScrollGuard
 import dev.eduarddragu.anotherhabittracker.reminders.Notifications
 import dev.eduarddragu.anotherhabittracker.reminders.resolveLinkedApp
 import dev.eduarddragu.anotherhabittracker.theme.AnotherHabitTrackerTheme
+import dev.eduarddragu.anotherhabittracker.theme.Motion
 import dev.eduarddragu.anotherhabittracker.theme.NumeralsDisplay
 import dev.eduarddragu.anotherhabittracker.ui.components.DayCard
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
@@ -48,7 +50,6 @@ import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
 import dev.eduarddragu.anotherhabittracker.ui.components.rise
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -60,20 +61,28 @@ import kotlinx.coroutines.launch
 class GuardActivity : ComponentActivity() {
   private var content by mutableStateOf<GuardContent?>(null)
   private var preview = false
+  /** This appearance was already counted in the week's stats (a recreated activity, or a redraw). */
+  private var counted = false
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    counted = savedInstanceState != null
     enableEdgeToEdge()
     load(intent)
     setContent {
       AnotherHabitTrackerTheme {
-        content?.let { GuardScreen(it, onDoIt = ::doIt, onGrant = ::grant, onLeave = ::leave) }
+        // The Surface sets the theme's content color: without it, text with no explicit
+        // color stays black, which vanished on the dark background.
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+          content?.let { GuardScreen(it, onDoIt = ::doIt, onGrant = ::grant, onLeave = ::leave) }
+        }
       }
     }
   }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
+    counted = false
     load(intent)
   }
 
@@ -82,7 +91,8 @@ class GuardActivity : ComponentActivity() {
     val pkg = intent.getStringExtra(EXTRA_PACKAGE)
     preview = intent.getBooleanExtra(EXTRA_PREVIEW, false)
     lifecycleScope.launch {
-      val statuses = app.repository.observeStatuses().first()
+      // Computed now: the shared flow can still hold yesterday's statuses just after midnight.
+      val statuses = app.repository.statuses()
       // A preview with everything done still shows something: the screen as it would be this morning.
       val open = statuses.filter { it.summary.dayOpen }.ifEmpty { if (preview) statuses else emptyList() }
       // Logged in the meantime (from the widget, say): nothing left to guard.
@@ -95,9 +105,16 @@ class GuardActivity : ComponentActivity() {
           names = open.map { it.habit.name },
           studyOpen = open.any { it.habit.kind == HabitKind.STUDY },
           anythingLogged = statuses.any { it.doneToday },
-          streak = open.maxOf { it.streak },
+          // The guard talks about studying, so the streak at stake is study's when it's open;
+          // otherwise the longest one still open.
+          streak = (open.firstOrNull { it.habit.kind == HabitKind.STUDY } ?: open.maxBy { it.streak }).streak,
         )
       val text = ScrollGuard.text(ScrollGuard.moment(budget), stakes, appName, today, budget.grants)
+      // Counted once per time it comes up for real (not a preview, not a redraw of the same screen).
+      if (!preview && !counted) {
+        app.guard.recordBlock(today)
+        counted = true
+      }
       content = GuardContent(appName, text, stakes.streak, open, ScrollGuard.grantLabel(budget), waitSeconds = if (budget.grants >= 1) GRANT_WAIT_SECONDS else 0)
     }
   }
@@ -152,7 +169,7 @@ private fun doItLabel(open: List<HabitStatus>): String {
 @Composable
 private fun GuardScreen(content: GuardContent, onDoIt: () -> Unit, onGrant: () -> Unit, onLeave: () -> Unit) {
   BackHandler(onBack = onLeave)
-  val arrival = rememberArrival(4, delayOf = { 80L * it }, durationOf = { 480 })
+  val arrival = rememberArrival(4, delayOf = { Motion.STAGGER * it.toLong() }, durationOf = { Motion.ENTRANCE })
   val colors = MaterialTheme.colorScheme
   val topic = content.open.firstNotNullOfOrNull { it.pick?.topic }
   var wait by remember(content) { mutableIntStateOf(content.waitSeconds) }
@@ -174,21 +191,21 @@ private fun GuardScreen(content: GuardContent, onDoIt: () -> Unit, onGrant: () -
         Text(content.text.body, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
       }
       if (content.streak > 0) {
-        Row(Modifier.rise(arrival[1], 12.dp)) {
+        Row(Modifier.rise(arrival[1], 16.dp)) {
           Text(content.streak.toString(), style = NumeralsDisplay, color = colors.primary, modifier = Modifier.alignByBaseline())
           Spacer(Modifier.width(12.dp))
           Text(if (content.streak == 1) "DAY, GONE AT MIDNIGHT" else "DAYS, GONE AT MIDNIGHT", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant, modifier = Modifier.alignByBaseline())
         }
       }
       if (topic != null) {
-        DayCard(done = false, modifier = Modifier.rise(arrival[2], 12.dp)) {
+        DayCard(done = false, modifier = Modifier.rise(arrival[2], 16.dp)) {
           Text("TODAY'S TOPIC", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
           Text(topic.title, style = MaterialTheme.typography.titleLarge)
         }
       }
     }
-    Column(Modifier.fillMaxWidth().padding(top = 16.dp).rise(arrival[3], 12.dp)) {
-      Button(onClick = onDoIt, modifier = Modifier.fillMaxWidth()) { Text(doItLabel(content.open)) }
+    Column(Modifier.fillMaxWidth().padding(top = 16.dp).rise(arrival[3], 16.dp)) {
+      Button(shape = MaterialTheme.shapes.medium, onClick = onDoIt, modifier = Modifier.fillMaxWidth()) { Text(doItLabel(content.open)) }
       Spacer(Modifier.height(4.dp))
       Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         TextAction("Close ${content.appName}", onClick = onLeave, color = colors.onSurfaceVariant)

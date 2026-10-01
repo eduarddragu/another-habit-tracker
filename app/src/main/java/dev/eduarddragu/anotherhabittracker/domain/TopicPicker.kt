@@ -82,6 +82,20 @@ object TopicPicker {
 
   fun dueDate(mark: TopicMark): LocalDate? = if (mark.known) null else mark.day.plusDays(REVIEW_AFTER_DAYS.getValue(mark.score.coerceIn(1, 5)))
 
+  /** A topic whose review date has come: when it came, and the last score it had. */
+  data class DueReview(val topic: Topic, val due: LocalDate, val score: Int)
+
+  /**
+   * Every topic due for review on [day], the weakest and longest-waiting first: what the picker
+   * brings back one at a time, shown in full so a review can be chosen by hand.
+   */
+  fun dueReviews(curriculum: Curriculum, marks: List<TopicMark>, day: LocalDate): List<DueReview> {
+    val latest = latest(marks, day)
+    return curriculum.topics
+      .mapNotNull { topic -> latest[topic.id]?.let { mark -> dueDate(mark)?.takeIf { !it.isAfter(day) }?.let { DueReview(topic, it, mark.score) } } }
+      .sortedWith(compareBy<DueReview> { it.score >= UNLOCK_SCORE }.thenBy { it.due })
+  }
+
   /**
    * The pick as it was on [day], for a session logged late ("yesterday"): only what was known by then
    * counts. A topic marked as known today must not change yesterday's topic.

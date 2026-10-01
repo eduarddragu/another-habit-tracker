@@ -1,5 +1,6 @@
 package dev.eduarddragu.anotherhabittracker.reminders
 
+import dev.eduarddragu.anotherhabittracker.domain.WeeklyRecap
 import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.PendingIntent
@@ -54,6 +55,16 @@ class ReminderScheduler(private val context: Context) {
     val intent = Intent(context, MidnightReceiver::class.java).setAction(MidnightReceiver.ACTION_MIDNIGHT)
     val pending = PendingIntent.getBroadcast(context, MIDNIGHT_REQUEST, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     setAlarm(nextMidnight.toInstant().toEpochMilli(), pending)
+    // Renewed with the midnight chain, which every path (start, boot, update, clock change) goes through.
+    scheduleRecap(now)
+  }
+
+  /** The weekly recap, on Sunday evening. */
+  fun scheduleRecap(now: ZonedDateTime = ZonedDateTime.now()) {
+    val at = WeeklyRecap.nextAt(now.toLocalDateTime()).atZone(now.zone)
+    val intent = Intent(context, RecapReceiver::class.java).setAction(RecapReceiver.ACTION_RECAP)
+    val pending = PendingIntent.getBroadcast(context, RECAP_REQUEST, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    setAlarm(at.toInstant().toEpochMilli(), pending)
   }
 
   /**
@@ -94,5 +105,6 @@ class ReminderScheduler(private val context: Context) {
   companion object {
     const val MAX_SLOTS = 24
     private const val MIDNIGHT_REQUEST = -1
+    private const val RECAP_REQUEST = -2
   }
 }

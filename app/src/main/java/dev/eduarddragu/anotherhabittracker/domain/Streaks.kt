@@ -54,6 +54,16 @@ object Freezes {
     return canFreeze(yesterday, sessions, freezes) && (before in sessions || before in freezes)
   }
 
+  /**
+   * Yesterday has nothing at all (no session, no freeze) and the habit was already running then:
+   * the habit's page offers to log it (done late, past midnight) and, when the rules allow, to
+   * freeze it. Logging it is the only way to log for yesterday, so it doesn't depend on a streak.
+   */
+  fun yesterdayEmpty(today: LocalDate, sessions: Set<LocalDate>, freezes: Set<LocalDate>): Boolean {
+    val yesterday = today.minusDays(1)
+    return yesterday !in sessions && yesterday !in freezes && (sessions + freezes).any { it < yesterday }
+  }
+
   private fun isoWeek(day: LocalDate) = day.get(IsoFields.WEEK_BASED_YEAR) to day.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)
 }
 

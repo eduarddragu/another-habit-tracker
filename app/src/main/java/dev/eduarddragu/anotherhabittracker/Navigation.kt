@@ -65,8 +65,8 @@ private val predictivePop = { slideInHorizontally(tween(340, easing = LinearEasi
  * geometry linearly.
  */
 private val sheetMetadata =
-  NavDisplay.transitionSpec { slideInVertically(tween(320, easing = Motion.EaseEntrance)) { it / 8 } + fadeIn(tween(180)) togetherWith ExitTransition.KeepUntilTransitionsFinished } +
-    NavDisplay.popTransitionSpec { EnterTransition.None togetherWith slideOutVertically(tween(Motion.EXIT, easing = Motion.EaseExit)) { it / 8 } + fadeOut(tween(160)) } +
+  NavDisplay.transitionSpec { slideInVertically(tween(320, easing = Motion.EaseEntrance)) { it / 8 } + fadeIn(tween(180, easing = Motion.EaseUi)) togetherWith ExitTransition.KeepUntilTransitionsFinished } +
+    NavDisplay.popTransitionSpec { EnterTransition.None togetherWith slideOutVertically(tween(Motion.EXIT, easing = Motion.EaseUi)) { it / 8 } + fadeOut(tween(160, easing = Motion.EaseUi)) } +
     NavDisplay.predictivePopTransitionSpec { EnterTransition.None togetherWith slideOutVertically(tween(340, easing = LinearEasing)) { it / 8 } + fadeOut(tween(340, easing = LinearEasing)) }
 
 @Composable
@@ -76,6 +76,8 @@ fun MainNavigation(
   deliveryProblems: List<String>,
   onEnableNotifications: () -> Unit,
   pendingLogHabitId: Long?,
+  pendingLogMinutes: Int?,
+  pendingLogDay: Long?,
   onPendingLogConsumed: () -> Unit,
   pendingOpenHabitId: Long?,
   onPendingOpenConsumed: () -> Unit,
@@ -94,7 +96,9 @@ fun MainNavigation(
   LaunchedEffect(pendingLogHabitId) {
     val id = pendingLogHabitId ?: return@LaunchedEffect
     while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
-    backStack.add(LogEntry(id))
+    // A session's day, when it's not today (a session that ran past midnight).
+    val day = pendingLogDay?.takeIf { it != app.repository.today().toEpochDay() }
+    backStack.add(LogEntry(id, onDay = day, minutes = pendingLogMinutes))
     onPendingLogConsumed()
   }
   // A tapped study reminder opens the habit page, where today's topic and its questions are.
@@ -146,6 +150,7 @@ fun MainNavigation(
               onOpen = { backStack.add(HabitDetail(it)) },
               onBackup = { backStack.add(Backup) },
               onGuard = { backStack.add(Guard) },
+              onLogSession = { habitId, minutes, day -> backStack.add(LogEntry(habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
               modifier = screen,
             )
           }
@@ -157,6 +162,8 @@ fun MainNavigation(
               onSettings = { backStack.add(HabitSettings(key.habitId)) },
               onCurriculum = { backStack.add(CurriculumBrowser(key.habitId)) },
               onEditEntry = { backStack.add(LogEntry(key.habitId, it)) },
+              onLogOnDay = { backStack.add(LogEntry(key.habitId, onDay = it.toEpochDay())) },
+              onLogMinutes = { minutes, day -> backStack.add(LogEntry(key.habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
               onUndoable = ::undoable,
               onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } },
               modifier = screen,
@@ -165,7 +172,7 @@ fun MainNavigation(
           entry<Backup> { BackupScreen(app = app, modifier = screen) }
           entry<Guard> { GuardSettingsScreen(app = app, modifier = screen) }
           entry<CurriculumBrowser> { key -> CurriculumScreen(app = app, habitId = key.habitId, onUndoable = ::undoable, modifier = screen) }
-          entry<LogEntry>(metadata = sheetMetadata) { key -> LogScreen(app = app, habitId = key.habitId, entryId = key.entryId, onDone = { finish(key, it) }, modifier = screen) }
+          entry<LogEntry>(metadata = sheetMetadata) { key -> LogScreen(app = app, habitId = key.habitId, entryId = key.entryId, onDay = key.onDay, prefillMinutes = key.minutes, onDone = { finish(key, it) }, modifier = screen) }
           entry<HabitSettings> { key -> HabitSettingsScreen(app = app, habitId = key.habitId, onDone = { finish(key, it) }, modifier = screen) }
         },
     )

@@ -1,7 +1,6 @@
 package dev.eduarddragu.anotherhabittracker.domain
 
 import java.time.LocalDate
-import java.time.LocalTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -34,10 +33,16 @@ class DailyRulesTest {
   }
 
   @Test
-  fun logStartsOnYesterdayOnlyInTheSmallHoursAndOnlyIfYesterdayIsEmpty() {
-    assertTrue(LogDefaults.startOnYesterday(LocalTime.of(0, 40), yesterdayLogged = false))
-    assertFalse(LogDefaults.startOnYesterday(LocalTime.of(0, 40), yesterdayLogged = true))
-    assertFalse(LogDefaults.startOnYesterday(LocalTime.of(9, 0), yesterdayLogged = false))
+  fun yesterdayCanBeLoggedWheneverItIsEmpty() {
+    val today = LocalDate.of(2026, 10, 1)
+    val yesterday = today.minusDays(1)
+    val before = yesterday.minusDays(1)
+    assertTrue(Freezes.yesterdayEmpty(today, setOf(before), emptySet()))
+    assertTrue("no streak to save, still loggable", Freezes.yesterdayEmpty(today, setOf(before.minusDays(3)), emptySet()))
+    assertTrue("today already done", Freezes.yesterdayEmpty(today, setOf(before, today), emptySet()))
+    assertFalse("logged", Freezes.yesterdayEmpty(today, setOf(before, yesterday), emptySet()))
+    assertFalse("frozen", Freezes.yesterdayEmpty(today, setOf(before), setOf(yesterday)))
+    assertFalse("habit started today", Freezes.yesterdayEmpty(today, setOf(today), emptySet()))
   }
 
   @Test

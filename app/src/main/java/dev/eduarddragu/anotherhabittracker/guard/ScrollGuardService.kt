@@ -23,7 +23,6 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 
@@ -72,8 +71,15 @@ class ScrollGuardService : AccessibilityService() {
   }
 
   override fun onAccessibilityEvent(event: AccessibilityEvent) {
-    if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
     val pkg = event.packageName?.toString() ?: return
+    // Coming back through Recents (or the quick-switch swipe) can bring an app to the front without a
+    // window change. A guarded app that scrolls is in front, whatever the last window change said:
+    // that's the doomscroll itself, so it can't slip past. Only the package is read, never the content.
+    if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+      run(tracker.onScrolled(pkg, event.eventTime))
+      return
+    }
+    if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
     // The guard itself sits over the guarded app without replacing it; the system UI (the shade, the
     // volume panel) and keyboards open on top of an app without leaving it.
     val className = event.className?.toString() ?: return
@@ -83,7 +89,7 @@ class ScrollGuardService : AccessibilityService() {
     // window (the share sheet, chat heads) leaves no event behind when it goes, so taking it for a
     // change would stop the count until the next real one.
     if (!isActivity(pkg, className)) return
-    run(tracker.onFront(pkg))
+    run(tracker.onFront(pkg, event.eventTime))
   }
 
   override fun onInterrupt() = Unit
@@ -104,7 +110,9 @@ class ScrollGuardService : AccessibilityService() {
         is GuardAction.Block -> runCatching { startActivity(GuardActivity.intent(this, action.pkg)) }.onFailure { Log.e(HabitApp.TAG, "Couldn't open the guard", it) }
         is GuardAction.Evaluate ->
           scope.launch {
-            val open = app.repository.observeStatuses().first().any { it.summary.dayOpen }
+            // Computed now, for the clock's today: the shared flow's last value can still be
+            // yesterday's around midnight (its day moves on a poll that stalls in deep sleep).
+            val open = app.repository.statuses().any { it.summary.dayOpen }
             val today = app.repository.today()
             val untilMidnight = Duration.between(LocalDateTime.now(), today.plusDays(1).atStartOfDay()).toMillis().coerceAtLeast(0)
             run(tracker.onEvaluated(action.generation, open, app.guard.budget(today), untilMidnight))

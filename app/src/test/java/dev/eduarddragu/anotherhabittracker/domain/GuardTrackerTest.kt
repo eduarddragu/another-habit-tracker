@@ -76,4 +76,34 @@ class GuardTrackerTest {
     val actions = tracker.onEvaluated(tracker.onFront(ig).evaluation(), true, ScrollBudget(day).grant(), millisToMidnight = 60_000L)
     assertEquals(listOf(GuardAction.Schedule(62_000L)), actions)
   }
+
+  @Test
+  fun aScrollBringsAGuardedAppBackWithoutAWindowChange() {
+    tracker.onFront(ig, eventTime = 0)
+    tracker.onFront("launcher", eventTime = 1_000)
+    assertTrue(tracker.onScrolled(ig, eventTime = 5_000).any { it is GuardAction.Evaluate })
+    assertEquals(ig, tracker.front)
+  }
+
+  @Test
+  fun aLateScrollAfterLeavingIsIgnored() {
+    tracker.onFront(ig, eventTime = 0)
+    tracker.onFront("launcher", eventTime = 1_000)
+    assertTrue(tracker.onScrolled(ig, eventTime = 900).isEmpty())
+    assertTrue(tracker.onScrolled(ig, eventTime = 1_200).isEmpty())
+    assertEquals("launcher", tracker.front)
+  }
+
+  @Test
+  fun scrollsFromOtherAppsNeverTakeTheFront() {
+    tracker.onFront("launcher", eventTime = 0)
+    assertTrue(tracker.onScrolled("com.example.maps", eventTime = 5_000).isEmpty())
+  }
+
+  @Test
+  fun nothingOpenSchedulesNothing() {
+    val generation = tracker.onFront(ig).evaluation()
+    assertTrue(tracker.onEvaluated(generation, anyHabitOpen = false, budget = ScrollBudget(day).grant(), millisToMidnight = hour).isEmpty())
+    assertFalse(tracker.counting)
+  }
 }

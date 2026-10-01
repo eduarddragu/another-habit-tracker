@@ -7,6 +7,7 @@ import dev.eduarddragu.anotherhabittracker.data.AppDatabase
 import dev.eduarddragu.anotherhabittracker.data.FocusStore
 import dev.eduarddragu.anotherhabittracker.data.HabitRepository
 import dev.eduarddragu.anotherhabittracker.data.PickHistory
+import dev.eduarddragu.anotherhabittracker.data.SessionStore
 import dev.eduarddragu.anotherhabittracker.domain.Curriculum
 import dev.eduarddragu.anotherhabittracker.guard.GuardStore
 import dev.eduarddragu.anotherhabittracker.reminders.Notifications
@@ -38,6 +39,7 @@ class HabitApp : Application() {
   val pickHistory by lazy { PickHistory(this) }
   val quiet by lazy { QuietStore(this) }
   val guard by lazy { GuardStore(this) }
+  val sessions by lazy { SessionStore(this) }
 
   override fun onCreate() {
     super.onCreate()

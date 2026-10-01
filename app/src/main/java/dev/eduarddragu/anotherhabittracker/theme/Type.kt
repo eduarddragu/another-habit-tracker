@@ -20,6 +20,7 @@ private fun variable(resource: Int, weight: FontWeight, style: FontStyle = FontS
 // The italic is its own file: without it, FontStyle.Italic would be a synthesized slant of the upright.
 private val Cormorant =
   FontFamily(
+    variable(R.font.cormorant_garamond, FontWeight.Normal),
     variable(R.font.cormorant_garamond, FontWeight.Medium),
     variable(R.font.cormorant_garamond, FontWeight.SemiBold),
     variable(R.font.cormorant_garamond_italic, FontWeight.Medium, FontStyle.Italic),
@@ -34,10 +35,10 @@ private const val LINING = "lnum"
 
 val Typography =
   Typography(
-    displaySmall = TextStyle(fontFamily = Cormorant, fontWeight = FontWeight.SemiBold, fontSize = 40.sp, lineHeight = 44.sp, letterSpacing = (-0.25).sp, fontFeatureSettings = LINING),
-    headlineSmall = TextStyle(fontFamily = Cormorant, fontWeight = FontWeight.SemiBold, fontSize = 28.sp, lineHeight = 32.sp, fontFeatureSettings = LINING),
-    titleLarge = TextStyle(fontFamily = Cormorant, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 28.sp, fontFeatureSettings = LINING),
-    titleSmall = TextStyle(fontFamily = Cormorant, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 24.sp, fontFeatureSettings = LINING),
+    displaySmall = TextStyle(fontFamily = Cormorant, fontWeight = FontWeight.Normal, fontSize = 40.sp, lineHeight = 44.sp, letterSpacing = (-0.8).sp, fontFeatureSettings = LINING),
+    headlineSmall = TextStyle(fontFamily = Cormorant, fontWeight = FontWeight.Medium, fontSize = 28.sp, lineHeight = 32.sp, fontFeatureSettings = LINING),
+    titleLarge = TextStyle(fontFamily = Cormorant, fontWeight = FontWeight.Medium, fontSize = 24.sp, lineHeight = 28.sp, fontFeatureSettings = LINING),
+    titleSmall = TextStyle(fontFamily = Cormorant, fontWeight = FontWeight.Medium, fontSize = 20.sp, lineHeight = 24.sp, fontFeatureSettings = LINING),
     titleMedium = TextStyle(fontFamily = DmSans, fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 24.sp),
     bodyLarge = TextStyle(fontFamily = DmSans, fontSize = 16.sp, lineHeight = 24.sp),
     bodyMedium = TextStyle(fontFamily = DmSans, fontSize = 14.sp, lineHeight = 20.sp),

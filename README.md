@@ -20,21 +20,16 @@ Every habit tracker I tried would happily count my days. None of them would tell
 
 ## Screens
 
-Light and dark mode, both native. I'm biased toward the first, so no screenshots of the latter :)
+Light and dark, both native. The screenshots follow your GitHub theme: switch it to see the other half.
 
-<table>
-  <tr>
-    <th>Home</th><th>A habit</th><th>Logging</th><th>Curriculum</th><th>Meditation</th><th>Scroll guard</th>
-  </tr>
-  <tr>
-    <td><img src="docs/assets/screenshots/home.png" width="140" alt="Home"></td>
-    <td><img src="docs/assets/screenshots/study.png" width="140" alt="The study habit's page"></td>
-    <td><img src="docs/assets/screenshots/log.png" width="140" alt="Logging a study session"></td>
-    <td><img src="docs/assets/screenshots/curriculum.png" width="140" alt="The curriculum"></td>
-    <td><img src="docs/assets/screenshots/meditation.png" width="140" alt="The meditation habit's page"></td>
-    <td><img src="docs/assets/screenshots/guard.png" width="140" alt="The scroll guard over Instagram, with the streak at stake and today's topic"></td>
-  </tr>
-</table>
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/home-dark.png"><img src="docs/assets/screenshots/home.png" width="150" alt="Home: greeting, planet and a card per habit with its streak"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/study-dark.png"><img src="docs/assets/screenshots/study.png" width="150" alt="The study habit: today's topic with its guiding questions"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/log-dark.png"><img src="docs/assets/screenshots/log.png" width="150" alt="Logging a session: score, minutes, notes"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/curriculum-dark.png"><img src="docs/assets/screenshots/curriculum.png" width="150" alt="The curriculum, area by area"></picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/guard-dark.png"><img src="docs/assets/screenshots/guard.png" width="150" alt="The scroll guard over Instagram"></picture>
+</p>
+<p align="center"><sub>Home · Today's topic · How did it go? · Curriculum · Scroll guard</sub></p>
 
 ## What it does
 
@@ -63,7 +58,7 @@ Meditation gets a daily item too: one small practice for the session (a longer e
 
 From the notification you can open the log form or an app linked to the habit (a meditation app, say). Habits without a score can be marked done right there. "On it" silences the reminders in between for two hours. Not the last call, though. Nobody gets out of the last call.
 
-**Guards the streak.** The streak is the biggest number on the screen, with this week drawn under it: on the home screen, on each habit's page and in the widget. You get one freeze a week. Log a session and today's square fills in and the number rolls over as you land back. Finished late? Log it for yesterday (after midnight the form starts there). Missed a day? The morning after, it can still take the week's freeze. Any session can be edited or deleted later.
+**Guards the streak.** The streak is the biggest number on the screen, with this week drawn under it: on the home screen, on each habit's page and in the widget. You get one freeze a week. Log a session and today's square fills in and the number rolls over as you land back. Finished past midnight? The habit's page says "Missed yesterday" with a Log it, and the session lands on the right day, even over a freeze, which then goes back to the week. Really missed it? The week's freeze can still cover it the morning after. Any session can be edited or deleted later.
 
 Numbers show up once there is something to count: days in the last 30, minutes, average score. After eight weeks a GitHub-style heatmap appears, shaded by score or minutes. Before that it would mostly be a grid of empty squares judging me.
 

@@ -41,12 +41,26 @@ class GuardTracker(private val isGuarded: (String) -> Boolean, private val now: 
   val counting: Boolean
     get() = countingSince != null
 
+  /** When the last window change arrived (event time), to tell late scroll events apart. */
+  private var frontSince = Long.MIN_VALUE
+
   /** A window change: [pkg] is in front now. The same app again changes nothing. */
-  fun onFront(pkg: String): List<GuardAction> {
+  fun onFront(pkg: String, eventTime: Long = now()): List<GuardAction> {
     if (pkg == front) return emptyList()
     val stopped = stop()
     front = pkg
+    frontSince = eventTime
     return stopped + evaluate()
+  }
+
+  /**
+   * A guarded app scrolled: it's in front even if no window change said so (back through Recents).
+   * Scroll events are throttled and can arrive after the window change that left the app (a fling,
+   * then Home), so one from before that change, or just after it, is ignored.
+   */
+  fun onScrolled(pkg: String, eventTime: Long): List<GuardAction> {
+    if (pkg == front || !isGuarded(pkg) || eventTime < frontSince + SCROLL_GRACE) return emptyList()
+    return onFront(pkg, eventTime)
   }
 
   fun onScreenOff(): List<GuardAction> {
@@ -96,5 +110,8 @@ class GuardTracker(private val isGuarded: (String) -> Boolean, private val now: 
   private companion object {
     /** Past midnight by a little, so the day has turned when the timer looks again. */
     const val MIDNIGHT_MARGIN = 2_000L
+
+    /** How long after a window change a scroll from another app is still taken as a leftover. */
+    const val SCROLL_GRACE = 500L
   }
 }

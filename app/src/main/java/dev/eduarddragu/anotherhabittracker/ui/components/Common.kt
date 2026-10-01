@@ -54,7 +54,7 @@ fun DayCard(done: Boolean, modifier: Modifier = Modifier, content: @Composable C
 /** "01 ..." rows (a topic's questions, a practice's steps), arriving one at a time from [startDelay]. */
 @Composable
 fun NumberedSteps(items: List<String>, startDelay: Long) {
-  val arrival = rememberArrival(items.size, delayOf = { startDelay + 90L * it }, durationOf = { 480 })
+  val arrival = rememberArrival(items.size, delayOf = { startDelay + Motion.STAGGER * it.toLong() }, durationOf = { Motion.ENTRANCE })
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     items.forEachIndexed { index, item ->
       Row(Modifier.rise(arrival[index], 8.dp)) {
@@ -68,7 +68,7 @@ fun NumberedSteps(items: List<String>, startDelay: Long) {
 /** Log, or once the day is done, "Log again" as the quieter outlined button. */
 @Composable
 fun LogButton(done: Boolean, onClick: () -> Unit) {
-  if (done) OutlinedButton(onClick = onClick, border = cardOutline()) { Text("Log again") } else Button(onClick = onClick) { Text("Log") }
+  if (done) OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = onClick, border = cardOutline()) { Text("Log again") } else Button(shape = MaterialTheme.shapes.medium, onClick = onClick) { Text("Log") }
 }
 
 /**

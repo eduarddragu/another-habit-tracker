@@ -18,6 +18,8 @@ data class HabitSummary(
   val freezeUsedOn: LocalDate?,
   /** Yesterday was missed but can still be frozen to keep the streak. */
   val canFreezeYesterday: Boolean,
+  /** Yesterday has nothing logged: it can still be logged, and maybe frozen. */
+  val yesterdayEmpty: Boolean,
   val stats: HabitStats,
   /** Heatmap cell for every day that has something logged. */
   val cells: Map<LocalDate, Cell>,
@@ -35,7 +37,9 @@ object HabitSummaries {
   fun build(kind: HabitKind, records: List<LogRecord>, today: LocalDate, curriculum: () -> Curriculum): HabitSummary {
     val sessions = records.filter { it.type == EntryType.SESSION }
     val sessionDays = sessions.map { it.day }.toSet()
-    val freezes = records.filter { it.type == EntryType.FREEZE }.map { it.day }.toSet()
+    // A session and a freeze on the same day (data from before sessions replaced freezes): the
+    // session wins, and the freeze counts neither for the streak nor as this week's freeze.
+    val freezes = records.filter { it.type == EntryType.FREEZE }.map { it.day }.toSet() - sessionDays
     val cells =
       records
         .filter { it.type != EntryType.KNOWN }
@@ -52,6 +56,7 @@ object HabitSummaries {
       canFreezeToday = Freezes.canFreeze(today, sessionDays, freezes),
       freezeUsedOn = Freezes.usedThisWeek(today, freezes),
       canFreezeYesterday = Freezes.canSaveYesterday(today, sessionDays, freezes),
+      yesterdayEmpty = Freezes.yesterdayEmpty(today, sessionDays, freezes),
       stats = Stats.of(sessions.map { Session(it.day, it.score, it.minutes) }, freezes, today),
       cells = cells,
       pick = if (kind == HabitKind.STUDY) TopicPicker.pick(curriculum(), marks, today) else null,

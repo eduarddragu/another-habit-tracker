@@ -23,7 +23,7 @@ fun pressScale(interaction: InteractionSource): Animatable<Float, AnimationVecto
   LaunchedEffect(interaction) {
     interaction.interactions.collect { event ->
       when (event) {
-        is PressInteraction.Press -> launch { scale.animateTo(0.97f, tween(100, easing = Motion.EaseUi)) }
+        is PressInteraction.Press -> launch { scale.animateTo(0.97f, tween(Motion.PRESS, easing = Motion.EasePress)) }
         is PressInteraction.Release,
         is PressInteraction.Cancel -> launch { scale.animateTo(1f, spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium)) }
       }

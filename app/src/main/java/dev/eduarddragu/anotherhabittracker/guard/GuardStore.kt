@@ -5,6 +5,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.view.accessibility.AccessibilityManager
 import androidx.core.content.edit
+import dev.eduarddragu.anotherhabittracker.domain.GuardDay
+import dev.eduarddragu.anotherhabittracker.domain.GuardWeek
 import dev.eduarddragu.anotherhabittracker.domain.ScrollBudget
 import dev.eduarddragu.anotherhabittracker.domain.ScrollGuard
 import java.time.LocalDate
@@ -40,13 +42,33 @@ class GuardStore(private val context: Context) {
     _grants.value++
   }
 
-  fun save(budget: ScrollBudget) =
+  fun save(budget: ScrollBudget) {
     prefs.edit {
       putString(KEY_DAY, budget.day.toString())
       putLong(KEY_USED, budget.usedMillis)
       putLong(KEY_ALLOWED, budget.allowedMillis)
       putInt(KEY_GRANTS, budget.grants)
     }
+    updateDay(budget.day) { it.copy(usedMillis = budget.usedMillis) }
+  }
+
+  /** The guard stepped in (its screen came up) on [day]. */
+  fun recordBlock(day: LocalDate) = updateDay(day) { it.copy(blocks = it.blocks + 1) }
+
+  /** The last two weeks, day by day: times it stepped in, minutes it let through. */
+  fun days(): List<GuardDay> =
+    prefs.getString(KEY_HISTORY, null).orEmpty().split(";").mapNotNull { row ->
+      val parts = row.split(",")
+      if (parts.size != 3) return@mapNotNull null
+      runCatching { GuardDay(LocalDate.parse(parts[0]), parts[1].toInt(), parts[2].toLong()) }.getOrNull()
+    }
+
+  private fun updateDay(day: LocalDate, change: (GuardDay) -> GuardDay) {
+    val days = days().associateBy { it.day }.toMutableMap()
+    days[day] = change(days[day] ?: GuardDay(day, 0, 0))
+    val kept = GuardWeek.trim(days.values.sortedBy { it.day }, day)
+    prefs.edit { putString(KEY_HISTORY, kept.joinToString(";") { "${it.day},${it.blocks},${it.usedMillis}" }) }
+  }
 
   /** Whether the accessibility service is switched on in the system settings. */
   fun serviceEnabled(): Boolean {
@@ -63,5 +85,6 @@ class GuardStore(private val context: Context) {
     const val KEY_USED = "used"
     const val KEY_ALLOWED = "allowed"
     const val KEY_GRANTS = "grants"
+    const val KEY_HISTORY = "history"
   }
 }

@@ -2,6 +2,7 @@ package dev.eduarddragu.anotherhabittracker.ui.components
 
 import android.content.Intent
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -13,5 +14,5 @@ import dev.eduarddragu.anotherhabittracker.reminders.resolveLinkedApp
 fun OpenLinkedAppButton(packageName: String?) {
   val context = LocalContext.current
   val app = remember(packageName) { resolveLinkedApp(context, packageName) } ?: return
-  OutlinedButton(onClick = { context.startActivity(Intent(app.launchIntent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }, border = cardOutline()) { Text("Open ${app.label}") }
+  OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { context.startActivity(Intent(app.launchIntent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }, border = cardOutline()) { Text("Open ${app.label}") }
 }

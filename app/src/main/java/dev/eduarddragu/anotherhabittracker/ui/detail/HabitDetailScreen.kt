@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -30,6 +31,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -70,7 +72,9 @@ import dev.eduarddragu.anotherhabittracker.domain.Curriculum
 import dev.eduarddragu.anotherhabittracker.domain.EntryType
 import dev.eduarddragu.anotherhabittracker.domain.HabitKind
 import dev.eduarddragu.anotherhabittracker.domain.Heatmap
+import dev.eduarddragu.anotherhabittracker.domain.Milestones
 import dev.eduarddragu.anotherhabittracker.domain.PickKind
+import dev.eduarddragu.anotherhabittracker.domain.TopicPicker
 import dev.eduarddragu.anotherhabittracker.domain.Practice
 import dev.eduarddragu.anotherhabittracker.domain.Practices
 import dev.eduarddragu.anotherhabittracker.domain.StudiedOn
@@ -92,6 +96,13 @@ import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
 import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.StatBlock
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
+import dev.eduarddragu.anotherhabittracker.reminders.Sessions
+import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
+import dev.eduarddragu.anotherhabittracker.domain.FocusSession
+import dev.eduarddragu.anotherhabittracker.ui.home.rememberSessionTick
+import dev.eduarddragu.anotherhabittracker.ui.home.endsAtClock
+import dev.eduarddragu.anotherhabittracker.ui.home.suggestedMinutes
+import dev.eduarddragu.anotherhabittracker.ui.home.startSession
 import dev.eduarddragu.anotherhabittracker.ui.components.WeekStrip
 import dev.eduarddragu.anotherhabittracker.ui.components.formatMinutes
 import dev.eduarddragu.anotherhabittracker.ui.components.gutter
@@ -99,6 +110,7 @@ import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberCommit
 import dev.eduarddragu.anotherhabittracker.ui.components.rise
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -141,6 +153,10 @@ fun HabitDetailScreen(
   onCurriculum: () -> Unit,
   /** Opens the log form on a session already logged, to correct or delete it. */
   onEditEntry: (Long) -> Unit,
+  /** Opens the log form for a new session on a given day: a frozen or missed one. */
+  onLogOnDay: (LocalDate) -> Unit,
+  /** Opens the log form for a finished focus session: its minutes and its day (epoch day). */
+  onLogMinutes: (Int, Long) -> Unit,
   /** Shows a message with an Undo action. */
   onUndoable: (String, () -> Unit) -> Unit,
   onMessage: (String) -> Unit,
@@ -151,6 +167,8 @@ fun HabitDetailScreen(
   val status = state ?: return
   val study = status.habit.kind == HabitKind.STUDY
   val commit = rememberCommit(habitId)
+  val session by app.sessions.session.collectAsStateWithLifecycle()
+  val tick by rememberSessionTick(app, session)
   var removingFreeze by rememberSaveable { mutableStateOf<Long?>(null) }
   // Title, streak, topic, actions, numbers, history: arriving in that order as the page slides in, each
   // settling after the one above it. The topic card is the page's main content, so it takes its time:
@@ -172,6 +190,7 @@ fun HabitDetailScreen(
         status,
         commit,
         onFreezeYesterday = { viewModel.freezeYesterday { ok -> onMessage(if (ok) "Yesterday is frozen" else "Freeze not available") } },
+        onLogYesterday = { onLogOnDay(status.today.minusDays(1)) },
         modifier = Modifier.gutter().rise(arrival[1], 16.dp),
       )
     }
@@ -184,6 +203,11 @@ fun HabitDetailScreen(
           onKnown = { id -> viewModel.markKnown(id) { marked -> if (marked.isNotEmpty()) onUndoable("Marked as known") { viewModel.unmark(marked) } } },
           onKeepGoing = viewModel::keepGoing,
           onCurriculum = onCurriculum,
+          onStart = if (session == null) { minutes -> startSession(app, status, minutes) } else null,
+          session = session?.takeIf { it.habitId == habitId },
+          now = tick,
+          onEndSession = { Sessions.end(app) },
+          onLogSession = { minutes, day -> onLogMinutes(minutes, day) },
           modifier = Modifier.gutter().rise(arrival[2], 32.dp),
         )
       }
@@ -191,7 +215,7 @@ fun HabitDetailScreen(
     // Meditation gets today's practice, with its actions inside the card like the study topic.
     val practice = if (!study && Practices.appliesTo(status.habit.name, status.habit.linkedPackage)) Practices.forDay(status.today) else null
     if (practice != null) {
-      item { TodaysPractice(status, practice, onLog = onLog, modifier = Modifier.gutter().rise(arrival[2], 32.dp)) }
+      item { TodaysPractice(status, practice, onLog = onLog, onStart = if (session == null) { minutes -> startSession(app, status, minutes) } else null, modifier = Modifier.gutter().rise(arrival[2], 32.dp)) }
     } else if (!study || status.habit.linkedPackage != null) {
       item {
         FlowRow(Modifier.gutter().rise(arrival[3], 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -240,21 +264,34 @@ fun HabitDetailScreen(
     }
   }
   removingFreeze?.let { id ->
+    val day = status.recent.firstOrNull { it.id == id }?.day
+    // Did it after all (past midnight, say): log the session and it replaces the freeze. Or take the
+    // freeze back and the day is missed again.
     AlertDialog(
       onDismissRequest = { removingFreeze = null },
-      title = { Text("Remove this freeze?") },
-      text = { Text("The day goes back to missed, and this week's freeze is free again.") },
+      title = { Text("This day is frozen") },
+      text = { Text("Did it after all? Log the session and the freeze goes back to this week. Removing the freeze makes the day missed again.") },
       confirmButton = {
+        TextButton(
+          onClick = {
+            removingFreeze = null
+            day?.let(onLogOnDay)
+          },
+          enabled = day != null,
+        ) {
+          Text("Log a session")
+        }
+      },
+      dismissButton = {
         TextButton(
           onClick = {
             removingFreeze = null
             viewModel.deleteEntry(id)
           }
         ) {
-          Text("Remove")
+          Text("Remove freeze")
         }
       },
-      dismissButton = { TextButton(onClick = { removingFreeze = null }) { Text("Cancel") } },
     )
   }
 }
@@ -264,7 +301,7 @@ fun HabitDetailScreen(
  * the number rolls and the line under it changes, in that order.
  */
 @Composable
-private fun StreakBlock(status: HabitStatus, commit: CommitPlayback, onFreezeYesterday: () -> Unit, modifier: Modifier = Modifier) {
+private fun StreakBlock(status: HabitStatus, commit: CommitPlayback, onFreezeYesterday: () -> Unit, onLogYesterday: () -> Unit, modifier: Modifier = Modifier) {
   val stats = status.stats
   val colors = MaterialTheme.colorScheme
   val shown = if (commit.rolled) stats.streak else commit.commit?.previousStreak ?: stats.streak
@@ -281,32 +318,23 @@ private fun StreakBlock(status: HabitStatus, commit: CommitPlayback, onFreezeYes
     }
     Spacer(Modifier.height(14.dp))
     WeekStrip(status.cells, status.today, cellSize = 28.dp, gap = 8.dp, initials = true, commit = commit)
-    Spacer(Modifier.height(12.dp))
-    // The week, and whether this week's freeze is still there to use.
-    val freeze = if (status.summary.freezeUsedOn != null) "freeze used" else "freeze ready"
-    val week = "${stats.daysThisWeek}/7 this week, $freeze"
-    val line =
-      when {
-        !commit.settled -> null
-        stats.streak == 0 && stats.best == 0 -> "Log today to start the count."
-        stats.streak == 0 -> "Best was ${stats.best}. Log today to start again."
-        status.doneToday && stats.streak >= stats.best -> "Day ${stats.streak}, your best so far. See you tomorrow."
-        status.doneToday -> "Day ${stats.streak}. See you tomorrow."
-        stats.streak >= stats.best -> "Your best so far. $week."
-        else -> "Best: ${stats.best}. $week."
-      }
-    AnimatedContent(
-      targetState = line,
-      transitionSpec = { fadeThrough() },
-      label = "streak line",
-    ) { text ->
-      Text(text ?: " ", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+    // No running commentary under the week (the squares say it): only a milestone, on its day.
+    val milestone = if (commit.settled && status.doneToday) Milestones.line(stats.streak) else null
+    if (milestone != null) {
+      Spacer(Modifier.height(12.dp))
+      Text(milestone, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
     }
-    // Yesterday slipped through but the streak can still be saved: offer the freeze, once.
-    if (status.summary.canFreezeYesterday && !status.doneToday) {
+    if (status.summary.yesterdayEmpty) Spacer(Modifier.height(12.dp))
+    // Yesterday slipped through: log it if it was done after all (finished past midnight), or use
+    // the week's freeze while it's free. This is the one way to log for yesterday.
+    if (status.summary.yesterdayEmpty) {
       Row(Modifier.fillMaxWidth()) {
         Text("Missed yesterday.", style = MaterialTheme.typography.bodyMedium, color = colors.primary, modifier = Modifier.weight(1f).alignByBaseline())
-        TextAction("Freeze it", onClick = onFreezeYesterday, modifier = Modifier.alignByBaseline())
+        TextAction("Log it", onClick = onLogYesterday, modifier = Modifier.alignByBaseline())
+        if (status.summary.canFreezeYesterday) {
+          Spacer(Modifier.width(20.dp))
+          TextAction("Freeze it", onClick = onFreezeYesterday, modifier = Modifier.alignByBaseline())
+        }
       }
     }
   }
@@ -315,7 +343,7 @@ private fun StreakBlock(status: HabitStatus, commit: CommitPlayback, onFreezeYes
 /** Meditation's counterpart to today's topic: a small practice for today's session, in three steps. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TodaysPractice(status: HabitStatus, practice: Practice, onLog: () -> Unit, modifier: Modifier = Modifier) {
+private fun TodaysPractice(status: HabitStatus, practice: Practice, onLog: () -> Unit, onStart: ((Int) -> Unit)?, modifier: Modifier = Modifier) {
   DayCard(status.doneToday, modifier) {
     CardLabel(listOf(if (status.doneToday) "DONE TODAY" else "TODAY", "PRACTICE"), accent = if (status.doneToday) "DONE TODAY" else "PRACTICE")
     Text(practice.title, style = MaterialTheme.typography.headlineSmall)
@@ -323,6 +351,10 @@ private fun TodaysPractice(status: HabitStatus, practice: Practice, onLog: () ->
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       LogButton(status.doneToday, onLog)
       OpenLinkedAppButton(status.habit.linkedPackage)
+      if (onStart != null && !status.doneToday) {
+        val minutes = suggestedMinutes(status)
+        TextButton(onClick = { onStart(minutes) }) { Text("Start $minutes min") }
+      }
     }
   }
 }
@@ -352,7 +384,15 @@ private fun TodaysTopic(
   onKnown: (String) -> Unit,
   onKeepGoing: (String?) -> Unit,
   onCurriculum: () -> Unit,
+  /** Starts a session of [Int] minutes on today's topic; null when one is already running. */
+  onStart: ((Int) -> Unit)?,
   modifier: Modifier = Modifier,
+  /** The session running on this habit, if any, with the clock to read it by. */
+  session: FocusSession? = null,
+  now: Long = 0,
+  onEndSession: () -> Unit = {},
+  /** Log for a finished session: its minutes and day. */
+  onLogSession: (Int, Long) -> Unit = { _, _ -> },
 ) {
   val haptics = LocalHapticFeedback.current
   // The topic shown when the page opened: its questions follow the card in. After "I know this" the
@@ -379,7 +419,13 @@ private fun TodaysTopic(
         }
         val area = (curriculum.areaById[pick.topic.area]?.name ?: pick.topic.area).uppercase()
         val state = if (status.doneToday) "DONE TODAY" else pickLabel(pick.kind)
-        CardLabel(listOfNotNull("TODAY".takeIf { !status.doneToday }, state, area), accent = state)
+        // The curriculum link sits on the label's line, top right: the actions below stay on one row.
+        // Reviews waiting are the reason to open it, so it says how many.
+        val due = remember(status.topicMarks, status.today) { TopicPicker.dueReviews(curriculum, status.topicMarks.values.toList(), status.today).size }
+        Row(Modifier.fillMaxWidth()) {
+          Box(Modifier.weight(1f).alignByBaseline()) { CardLabel(listOfNotNull("TODAY".takeIf { !status.doneToday }, state, area), accent = state) }
+          TextAction(if (due > 0) "$due due" else "Curriculum", onClick = onCurriculum, vertical = 4.dp, modifier = Modifier.alignByBaseline())
+        }
         Text(pick.topic.title, style = MaterialTheme.typography.headlineSmall)
         // The questions arrive one at a time.
         NumberedSteps(pick.topic.hints, startDelay = if (pick.topic.id == firstTopic) 560L else 120L)
@@ -398,7 +444,30 @@ private fun TodaysTopic(
         }
         // All the card's actions in one flowing row, like the practice card; undoing a "keep going" too.
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-          LogButton(status.doneToday, onLog)
+          // One tap, 30 minutes. The page stays here (it's where the scope is checked); the planet on
+          // Home is the timer, and the countdown is also in the notification and the status bar.
+          val sessionPhase = session?.phase(now)
+          when {
+            sessionPhase == SessionPhase.RUNNING || sessionPhase == SessionPhase.PAUSED -> {
+              Text(
+                if (sessionPhase == SessionPhase.PAUSED) "IN SESSION · PAUSED" else "IN SESSION · ENDS ${endsAtClock(session, now)}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+              )
+              TextAction("End", onClick = onEndSession, modifier = Modifier.padding(start = 12.dp))
+            }
+            sessionPhase == SessionPhase.FINISHED && session.minutesToLog(now) != null -> {
+              val minutes = session.minutesToLog(now)!!
+              Button(onClick = { onLogSession(minutes, session.day.toEpochDay()) }, shape = MaterialTheme.shapes.medium) { Text("Log $minutes min") }
+            }
+            else -> {
+              LogButton(status.doneToday, onLog)
+              if (onStart != null && !status.doneToday) {
+                val minutes = suggestedMinutes(status)
+                TextButton(onClick = { onStart(minutes) }) { Text("Start $minutes min") }
+              }
+            }
+          }
           // Not once today is logged: it would swap out the topic just studied.
           if (!status.doneToday) {
             TextButton(
@@ -410,8 +479,7 @@ private fun TodaysTopic(
               Text("I know this")
             }
           }
-          if (pick.kind == PickKind.CONTINUE && !status.doneToday) TextButton(onClick = { onKeepGoing(null) }) { Text("Back to today's topic") }
-          TextButton(onClick = onCurriculum) { Text("See the curriculum") }
+          if (status.focused && !status.doneToday) TextButton(onClick = { onKeepGoing(null) }) { Text("Back to today's topic") }
         }
       }
     }

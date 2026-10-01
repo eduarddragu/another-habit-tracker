@@ -26,6 +26,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -70,6 +72,7 @@ import dev.eduarddragu.anotherhabittracker.ui.components.HabitViewModel
 import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
 import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
+import dev.eduarddragu.anotherhabittracker.ui.components.cardOutline
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
 import dev.eduarddragu.anotherhabittracker.ui.components.rise
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
@@ -147,7 +150,7 @@ fun HabitSettingsScreen(
     ScreenTitle("Settings", name.ifBlank { habit.name }, Modifier.rise(arrival[0], 16.dp), icon = icon)
     Column(Modifier.rise(arrival[1], 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       SectionLabel("Name and icon")
-      OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+      OutlinedTextField(name, { name = it }, label = { Text("Name") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
       IconPicker(icon, onPick = { icon = it })
     }
 
@@ -166,7 +169,7 @@ fun HabitSettingsScreen(
         }
         // Adding a time and hearing what a reminder sounds like belong together.
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-          if (parsed.size < ReminderScheduler.MAX_SLOTS) OutlinedButton(onClick = { pickingTime = true }) { Text("Add reminder") }
+          if (parsed.size < ReminderScheduler.MAX_SLOTS) OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { pickingTime = true }, border = cardOutline()) { Text("Add reminder") }
           TextAction("Preview a reminder", onClick = { viewModel.preview(habit) })
         }
         if (parsed.size >= ReminderScheduler.MAX_SLOTS) {
@@ -184,6 +187,7 @@ fun HabitSettingsScreen(
 
       // The page ends on its main action, like the log form.
       Button(
+        shape = MaterialTheme.shapes.medium,
         enabled = name.isNotBlank() && !busy,
         modifier = Modifier.fillMaxWidth(),
         onClick = { viewModel.save(habit.copy(name = name.trim(), reminderTimes = times, linkedPackage = linkedPackage, icon = icon.name)) { onDone("Saved") } },

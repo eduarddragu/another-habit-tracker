@@ -37,7 +37,14 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.withContext
 
 /** A habit, its sessions and freezes (newest first) and today's summary. */
-data class HabitStatus(val habit: Habit, val summary: HabitSummary, val recent: List<Entry>, val since: LocalDate? = null) {
+data class HabitStatus(
+  val habit: Habit,
+  val summary: HabitSummary,
+  val recent: List<Entry>,
+  val since: LocalDate? = null,
+  /** Today's topic was chosen by hand (keep going, or a review picked from the curriculum). */
+  val focused: Boolean = false,
+) {
   val today: LocalDate
     get() = summary.today
 
@@ -143,7 +150,15 @@ class HabitRepository(
       withContext(Dispatchers.Default) { status(habit, entries, today()) }
     }
 
-  suspend fun logSession(entry: Entry): Long = db.entries().insert(entry.copy(type = EntryType.SESSION))
+  /**
+   * A session for a day that was frozen replaces the freeze: the day was done after all, and this
+   * week's freeze is free again.
+   */
+  suspend fun logSession(entry: Entry): Long =
+    db.withTransaction {
+      db.entries().forHabit(entry.habitId).filter { it.type == EntryType.FREEZE && it.day == entry.day }.forEach { db.entries().delete(it.id) }
+      db.entries().insert(entry.copy(type = EntryType.SESSION))
+    }
 
   /** Returns false when the rules don't allow a freeze on that day. */
   suspend fun freeze(habitId: Long, day: LocalDate): Boolean =
@@ -201,7 +216,9 @@ class HabitRepository(
       db.entries().deleteAll()
       db.habits().deleteAll()
       db.habits().insertAll(file.habits.map { it.toHabit() })
-      db.entries().insertAll(file.entries.map { it.toEntry() })
+      // A freeze that shares its day with a session is dropped: the session replaced it.
+      val sessionDays = file.entries.filter { it.type == EntryType.SESSION.name }.map { it.habitId to it.day }.toSet()
+      db.entries().insertAll(file.entries.filterNot { it.type == EntryType.FREEZE.name && (it.habitId to it.day) in sessionDays }.map { it.toEntry() })
       before
     }
 
@@ -229,9 +246,12 @@ class HabitRepository(
     val built = HabitSummaries.build(habit.kind, records, today) { curriculum }
     // A "keep going" choice for today replaces the picker's topic everywhere: screens, widget, reminders.
     val chosen = focus.all.value[habit.id]?.takeIf { it.day == today }?.let { curriculum.byId[it.topicId] }
-    val summary = if (chosen != null && habit.kind == HabitKind.STUDY) built.copy(pick = TopicPick(chosen, PickKind.CONTINUE)) else built
+    // A chosen topic that is due for review reads as a review; otherwise it's the one being continued.
+    val chosenKind = chosen?.let { topic -> if (built.topicMarks[topic.id]?.let { TopicPicker.dueDate(it)?.isAfter(today) == false } == true) PickKind.REVIEW else PickKind.CONTINUE }
+    val summary = if (chosen != null && habit.kind == HabitKind.STUDY) built.copy(pick = TopicPick(chosen, chosenKind!!)) else built
     // Sessions and freezes: both are things he did on a day, and both can be taken back from Recent.
-    val recent = entries.filter { it.type == EntryType.SESSION || it.type == EntryType.FREEZE }.sortedWith(compareByDescending<Entry> { it.day }.thenByDescending { it.loggedAt })
-    return HabitStatus(habit, summary, recent, since = entries.minOfOrNull { it.day })
+    val sessionDays = entries.filter { it.type == EntryType.SESSION }.map { it.day }.toSet()
+    val recent = entries.filter { it.type == EntryType.SESSION || (it.type == EntryType.FREEZE && it.day !in sessionDays) }.sortedWith(compareByDescending<Entry> { it.day }.thenByDescending { it.loggedAt })
+    return HabitStatus(habit, summary, recent, since = entries.minOfOrNull { it.day }, focused = chosen != null && habit.kind == HabitKind.STUDY)
   }
 }
