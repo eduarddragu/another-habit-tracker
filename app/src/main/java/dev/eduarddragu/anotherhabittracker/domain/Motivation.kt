@@ -43,6 +43,21 @@ object Motivation {
 
   private const val STREAK_LINES_FROM = 3
 
+  /** Time off: no push, no jokes. Gentle, and different from day to day. */
+  private val timeOff =
+    listOf(
+      "Take care, and take your time.",
+      "Recharge. That matters more than any streak.",
+      "Rest is part of it too.",
+      "The notebook will be here when you're back.",
+      "Be where you need to be. This can wait.",
+      "Nothing to do here today. Look after yourself.",
+      "The streak is waiting, not counting.",
+    )
+
+  /** A line for a day off, stable through the day; [salt] keeps two cards from repeating each other. */
+  fun timeOffLine(day: LocalDate, salt: Int = 0): String = timeOff[Math.floorMod(day.toEpochDay().toInt() * 3 + salt, timeOff.size)]
+
   /** A greeting around the name: "Good evening, Eduard" or "Still up, Eduard?". */
   data class Greeting(val lead: String, val question: Boolean = false)
 

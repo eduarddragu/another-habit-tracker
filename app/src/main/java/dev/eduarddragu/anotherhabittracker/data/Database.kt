@@ -18,6 +18,8 @@ import androidx.room.Update
 import dev.eduarddragu.anotherhabittracker.domain.EntryType
 import dev.eduarddragu.anotherhabittracker.domain.HabitIcon
 import dev.eduarddragu.anotherhabittracker.domain.HabitKind
+import dev.eduarddragu.anotherhabittracker.domain.parseReminderTimes
+import dev.eduarddragu.anotherhabittracker.domain.ReminderPlan
 import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 
@@ -33,7 +35,34 @@ data class Habit(
   val position: Int = 0,
   /** A HabitIcon name; null means the default for the habit's kind. Added in schema version 3. */
   val icon: String? = null,
+  /** Saturday and Sunday's reminder times, same format; null means the same as weekdays. Added in schema version 4. */
+  val weekendReminderTimes: String? = null,
 )
+
+/** A stretch of days off (see domain TimeOff); [end] null while open. Added in schema version 4. */
+@Entity(tableName = "time_off")
+data class TimeOffRow(
+  @PrimaryKey(autoGenerate = true) val id: Long = 0,
+  val start: LocalDate,
+  val end: LocalDate? = null,
+)
+
+@Dao
+interface TimeOffDao {
+  @Query("SELECT * FROM time_off ORDER BY start") fun observeAll(): Flow<List<TimeOffRow>>
+
+  @Query("SELECT * FROM time_off ORDER BY start") suspend fun all(): List<TimeOffRow>
+
+  @Insert suspend fun insert(row: TimeOffRow): Long
+
+  @Insert suspend fun insertAll(rows: List<TimeOffRow>)
+
+  @Update suspend fun update(row: TimeOffRow)
+
+  @Query("DELETE FROM time_off WHERE id = :id") suspend fun delete(id: Long)
+
+  @Query("DELETE FROM time_off") suspend fun deleteAll()
+}
 
 @Entity(
   tableName = "entries",
@@ -59,6 +88,10 @@ data class Entry(
   val topicId: String? = null,
 )
 
+/** The reminder times that apply on [day]: the weekend list on Saturday and Sunday, when there is one. */
+fun Habit.reminderTimesOn(day: LocalDate): List<java.time.LocalTime> =
+  ReminderPlan.timesOn(day, parseReminderTimes(reminderTimes), weekendReminderTimes?.let(::parseReminderTimes))
+
 val Habit.resolvedIcon: HabitIcon
   get() = HabitIcon.resolve(icon, kind, linkedPackage)
 
@@ -66,6 +99,10 @@ class Converters {
   @TypeConverter fun dayToLong(day: LocalDate): Long = day.toEpochDay()
 
   @TypeConverter fun longToDay(value: Long): LocalDate = LocalDate.ofEpochDay(value)
+
+  @TypeConverter fun nullableDayToLong(day: LocalDate?): Long? = day?.toEpochDay()
+
+  @TypeConverter fun longToNullableDay(value: Long?): LocalDate? = value?.let(LocalDate::ofEpochDay)
 
   @TypeConverter fun kindToString(kind: HabitKind): String = kind.name
 
@@ -120,16 +157,18 @@ interface EntryDao {
 }
 
 @Database(
-  entities = [Habit::class, Entry::class],
+  entities = [Habit::class, Entry::class, TimeOffRow::class],
   version = DB_SCHEMA,
   exportSchema = true,
-  autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
+  autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
   abstract fun habits(): HabitDao
 
   abstract fun entries(): EntryDao
+
+  abstract fun timeOff(): TimeOffDao
 
   companion object {
     fun create(context: Context): AppDatabase = Room.databaseBuilder(context, AppDatabase::class.java, "habits.db").build()

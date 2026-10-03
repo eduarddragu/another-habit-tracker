@@ -16,7 +16,7 @@ class BackupTest {
   private val habits =
     listOf(
       Habit(id = 1, name = "Study", kind = HabitKind.STUDY, reminderTimes = "09:30,21:30", position = 0, icon = "BOOK"),
-      Habit(id = 2, name = "Meditation", kind = HabitKind.SIMPLE, reminderTimes = "08:00", linkedPackage = "meditofoundation.medito", position = 1),
+      Habit(id = 2, name = "Meditation", kind = HabitKind.SIMPLE, reminderTimes = "08:00", linkedPackage = "meditofoundation.medito", position = 1, weekendReminderTimes = "10:00,16:00"),
     )
   private val entries =
     listOf(
@@ -25,13 +25,15 @@ class BackupTest {
       Entry(id = 12, habitId = 2, day = LocalDate.of(2026, 9, 28), type = EntryType.FREEZE, loggedAt = 3_000L),
     )
   private val now = ZonedDateTime.of(2026, 9, 28, 23, 30, 0, 0, ZoneId.of("Europe/Rome"))
-  private val good = Backups.encode(backupOf(habits, entries, now, appVersionCode = 21, curriculumVersion = 4))
+  private val timeOff = listOf(TimeOffRow(id = 1, start = LocalDate.of(2026, 9, 20), end = LocalDate.of(2026, 9, 22)), TimeOffRow(id = 2, start = LocalDate.of(2026, 9, 27)))
+  private val good = Backups.encode(backupOf(habits, entries, now, appVersionCode = 21, curriculumVersion = 4, timeOff = timeOff))
 
   @Test
   fun roundTripPreservesEveryField() {
     val file = Backups.decode(good)
     assertEquals(habits, file.habits.map { it.toHabit() })
     assertEquals(entries, file.entries.map { it.toEntry() })
+    assertEquals(timeOff, file.timeOff.map { it.toRow() })
   }
 
   @Test
@@ -73,8 +75,8 @@ class BackupTest {
         "not json" to "not json at all",
         "missing format" to good.replace("\"format\": \"another-habit-tracker\",", ""),
         "other app" to good.replace("\"another-habit-tracker\"", "\"some-other-app\""),
-        "newer version" to good.replace("\"version\": 2", "\"version\": 99"),
-        "version zero" to good.replace("\"version\": 2", "\"version\": 0"),
+        "newer version" to good.replace("\"version\": ${Backups.VERSION}", "\"version\": 99"),
+        "version zero" to good.replace("\"version\": ${Backups.VERSION}", "\"version\": 0"),
         "no habits" to Backups.encode(backupOf(emptyList(), emptyList(), now, 21)),
         "duplicate habit ids" to good.replace("\"id\": 2,", "\"id\": 1,"),
         "duplicate entry ids" to good.replace("\"id\": 12,", "\"id\": 10,"),

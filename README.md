@@ -43,11 +43,11 @@ Light and dark, both native. The screenshots follow your GitHub theme: switch it
 | 4 | Could explain it properly | review in 30 days |
 | 5 | Could teach it | review in 90 days |
 
-The log form tells you what the score will do before you save it. A topic that comes back for review shows the notes you left last time. A topic that needs more than one evening can be picked up again the next day from the session history. Already know something? Mark it known, one topic or a whole area at once (with undo), so the graph doesn't start from zero.
+The log form tells you what the score will do before you save it. A topic that comes back for review shows the notes you left last time. A topic that needs more than one evening can be picked up again the next day from the session history. Already know something? Mark it known, one topic or a whole area at once (with undo), so the graph doesn't start from zero. Reviews that have come due are listed at the top of the curriculum, weakest first, and any of them can be today's topic with one tap.
 
 Meditation gets a daily item too: one small practice for the session (a longer exhale, a body scan, noting thoughts) in three short steps. Every practice comes up once before any repeats.
 
-**Gets pushier.** Each habit has its own reminder times, and each one hits harder than the last. The first sets out the day's topic. The middle ones nudge, then push. The last is a last call, with the streak on the line and its own sound. Log the habit and the rest of the day goes quiet.
+**Gets pushier.** Each habit has its own reminder times, and each one hits harder than the last. The first sets out the day's topic. The middle ones nudge, then push. The last is a last call, with the streak on the line and its own sound. Log the habit and the rest of the day goes quiet. Weekdays and weekends can have their own times: lunch and evening during the week, when a reminder at 10:00 would just get swiped, and spread out on Saturday and Sunday.
 
 | Reminder | Sounds like | Channel |
 |---|---|---|
@@ -60,11 +60,17 @@ From the notification you can open the log form or an app linked to the habit (a
 
 **Guards the streak.** The streak is the biggest number on the screen, with this week drawn under it: on the home screen, on each habit's page and in the widget. You get one freeze a week. Log a session and today's square fills in and the number rolls over as you land back. Finished past midnight? The habit's page says "Missed yesterday" with a Log it, and the session lands on the right day, even over a freeze, which then goes back to the week. Really missed it? The week's freeze can still cover it the morning after. Any session can be edited or deleted later.
 
-Numbers show up once there is something to count: days in the last 30, minutes, average score. After eight weeks a GitHub-style heatmap appears, shaded by score or minutes. Before that it would mostly be a grid of empty squares judging me.
+Numbers show up once there is something to count: days in the last 30, minutes, average score. After eight weeks a GitHub-style heatmap appears, shaded by score or minutes. Before that it would mostly be a grid of empty squares judging me. At 7, 30, 100 days and a few in between, the day's line gives the streak its moment. No confetti.
+
+On Sunday evening a recap closes the week: days per habit, time, the average score, the topic that went worst.
 
 **Opens on a planet.** Home greets you by the time of day ("Still up, Eduard?") and gives you a line for the day ("Nobody asked if you felt like it."), while a small planet sways in the middle and the habit cards wait below. Every line is written for this app; none is borrowed from a poster.
 
-**Guards the feed.** Opening Instagram with the streak still open? An optional scroll guard gets there first: what's left today, the days at stake, and a button that goes straight to the habit. It's a soft block. "Ten minutes, then I'm out" lets the feed through; when they're up it asks again, a little less politely, five minutes at a time. Back takes you home instead of into the app. Once everything is logged, it steps aside. It runs as an accessibility service that only learns which app is in front, not what the apps show, and you choose the apps.
+**Turns the planet into a timer.** One tap on the planet (or on the topic card) starts a 30-minute session, 5 for meditation. The planet becomes the clock: the disc grows, the ring opens into a circle, and an accent arc drains as the minutes go. Under it stay the topic and its questions, so checking what's in scope never means leaving the timer. The countdown is also in the notification and in the status bar. When time's up a chime plays, the ring closes, and Log opens with the minutes already filled in.
+
+**Takes time off with you.** Life happens. Time off covers a stretch of days, starting up to 60 days back if they've already gone, open until you're back or with an end date. Days off don't count and don't break the streak, and nothing nags: no reminders, no guard, no recap, just a kind line on the home screen. The study topic of the first day off waits for you and comes back on your return.
+
+**Guards the feed.** Opening Instagram with the streak still open? An optional scroll guard gets there first: what's left today, the days at stake, and a button that goes straight to the habit. It's a soft block. "Ten minutes, then I'm out" lets the feed through; when they're up it asks again, a little less politely, five minutes at a time. Back takes you home instead of into the app. Once everything is logged, it steps aside. Its settings keep an honest count: how many times it stopped you this week, and how many minutes you bought. It runs as an accessibility service that only learns which app is in front, not what the apps show, and you choose the apps.
 
 **Sits on the home screen.** A small "Today" widget shows what's done, what's left, the study topic, this week and the streaks. It follows the launcher's light or dark theme.
 
@@ -77,7 +83,7 @@ Numbers show up once there is something to count: days in the last 30, minutes, 
 - Reminders are exact alarms set on the phone (`AlarmManager`, `USE_EXACT_ALARM`), rescheduled after a reboot, an app update, or a time or timezone change. No server involved.
 - Glance for the widget, refreshed on every change and just after midnight.
 - Type from [eduarddragu.dev](https://eduarddragu.dev): Cormorant Garamond for titles, DM Sans for text and numbers, Geist Mono for small labels. Bundled under the SIL Open Font License and cut down to Latin characters (licenses in `app/src/main/assets/licenses/`). Habit icons are hand-drawn vectors.
-- The logic that matters (streaks, reminder timing and tone, heatmap, stats, topic picking, curriculum validation, the scroll guard's budget) is plain Kotlin with unit tests.
+- The logic that matters (streaks, time off, reminder timing and tone, heatmap, stats, topic picking and due reviews, curriculum validation, the scroll guard, the session timer, the weekly recap) is plain Kotlin with unit tests.
 
 ```
 app/src/main/java/dev/eduarddragu/anotherhabittracker/

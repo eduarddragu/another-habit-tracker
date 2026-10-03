@@ -9,6 +9,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object Guard : NavKey
 
+@Serializable data object TimeOffKey : NavKey
+
 @Serializable data class HabitDetail(val habitId: Long) : NavKey
 
 /**

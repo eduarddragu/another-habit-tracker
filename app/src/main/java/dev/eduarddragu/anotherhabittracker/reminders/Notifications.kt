@@ -167,7 +167,7 @@ object Notifications {
         .setOnlyAlertOnce(true)
         .setSilent(true)
         .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
-        .setContentIntent(homeIntent(context))
+        .setContentIntent(activityIntent(context, session.habitId, EXTRA_OPEN_HABIT_ID, requestOffset = 920_000))
         .setShowWhen(!paused)
         .setUsesChronometer(!paused)
         .setChronometerCountDown(true)
@@ -204,14 +204,6 @@ object Notifications {
   }
 
   fun dismissSession(context: Context) = NotificationManagerCompat.from(context).cancel(SESSION_ID)
-
-  private fun homeIntent(context: Context): PendingIntent =
-    PendingIntent.getActivity(
-      context,
-      910_007,
-      Intent(context, MainActivity::class.java).putExtra(EXTRA_OPEN_HOME, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
 
   private fun post(manager: NotificationManagerCompat, builder: NotificationCompat.Builder) {
     try {

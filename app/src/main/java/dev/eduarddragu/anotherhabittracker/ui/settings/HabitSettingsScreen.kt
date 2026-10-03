@@ -136,9 +136,12 @@ fun HabitSettingsScreen(
 
   var name by rememberSaveable(habit.id) { mutableStateOf(habit.name) }
   var times by rememberSaveable(habit.id) { mutableStateOf(habit.reminderTimes) }
+  // Null: the weekend uses the weekday times.
+  var weekendTimes by rememberSaveable(habit.id) { mutableStateOf(habit.weekendReminderTimes) }
   var linkedPackage by rememberSaveable(habit.id) { mutableStateOf(habit.linkedPackage) }
   var icon by rememberSaveable(habit.id) { mutableStateOf(habit.resolvedIcon) }
-  var pickingTime by rememberSaveable { mutableStateOf(false) }
+  // Which list a new time goes to: weekdays or the weekend.
+  var pickingFor by rememberSaveable { mutableStateOf<String?>(null) }
   var pickingApp by rememberSaveable { mutableStateOf(false) }
 
   val linkedLabel = linkedPackage?.let { pkg -> apps.firstOrNull { it.packageName == pkg }?.label ?: "$pkg (not installed)" } ?: "None"
@@ -155,25 +158,22 @@ fun HabitSettingsScreen(
     }
 
     Column(Modifier.rise(arrival[2], 16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionLabel("Reminders")
-        val parsed = parseReminderTimes(times)
-        parsed.forEachIndexed { index, time ->
-          Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Column {
-              Text(formatTime(time), style = Numerals)
-              Text(toneLabel(ReminderPlan.tone(index, parsed.size)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            TextAction("Remove", onClick = { times = formatReminderTimes(parsed - time) })
-          }
-        }
-        // Adding a time and hearing what a reminder sounds like belong together.
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-          if (parsed.size < ReminderScheduler.MAX_SLOTS) OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { pickingTime = true }, border = cardOutline()) { Text("Add reminder") }
-          TextAction("Preview a reminder", onClick = { viewModel.preview(habit) })
-        }
-        if (parsed.size >= ReminderScheduler.MAX_SLOTS) {
-          Text("That's the maximum of ${ReminderScheduler.MAX_SLOTS} reminders a day.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      // Workdays and weekends can differ: lunch and evening during the week, spread out on Saturday
+      // and Sunday.
+      ReminderList(
+        label = if (weekendTimes == null) "Reminders" else "Reminders · weekdays",
+        times = times,
+        onChange = { times = it },
+        onAdd = { pickingFor = WEEKDAYS },
+        onPreview = { viewModel.preview(habit) },
+      )
+      val weekend = weekendTimes
+      if (weekend == null) {
+        TextAction("Different times on weekends", onClick = { weekendTimes = times })
+      } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          ReminderList(label = "Reminders · weekend", times = weekend, onChange = { weekendTimes = it }, onAdd = { pickingFor = WEEKEND }, onPreview = null)
+          TextAction("Same as weekdays", onClick = { weekendTimes = null })
         }
       }
 
@@ -190,19 +190,20 @@ fun HabitSettingsScreen(
         shape = MaterialTheme.shapes.medium,
         enabled = name.isNotBlank() && !busy,
         modifier = Modifier.fillMaxWidth(),
-        onClick = { viewModel.save(habit.copy(name = name.trim(), reminderTimes = times, linkedPackage = linkedPackage, icon = icon.name)) { onDone("Saved") } },
+        onClick = { viewModel.save(habit.copy(name = name.trim(), reminderTimes = times, weekendReminderTimes = weekendTimes, linkedPackage = linkedPackage, icon = icon.name)) { onDone("Saved") } },
       ) {
         Text("Save")
       }
     }
   }
 
-  if (pickingTime) {
+  pickingFor?.let { list ->
     TimeDialog(
-      onDismiss = { pickingTime = false },
+      onDismiss = { pickingFor = null },
       onPick = {
-        times = formatReminderTimes(parseReminderTimes(times) + it)
-        pickingTime = false
+        if (list == WEEKEND) weekendTimes = formatReminderTimes(parseReminderTimes(weekendTimes.orEmpty()) + it)
+        else times = formatReminderTimes(parseReminderTimes(times) + it)
+        pickingFor = null
       },
     )
   }
@@ -216,6 +217,36 @@ fun HabitSettingsScreen(
         pickingApp = false
       },
     )
+  }
+}
+
+private const val WEEKDAYS = "weekdays"
+private const val WEEKEND = "weekend"
+
+/** One list of reminder times, each with the tone it will have, plus adding one. */
+@Composable
+private fun ReminderList(label: String, times: String, onChange: (String) -> Unit, onAdd: () -> Unit, onPreview: (() -> Unit)?) {
+  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    SectionLabel(label)
+    val parsed = parseReminderTimes(times)
+    if (parsed.isEmpty()) Text("No reminders.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    parsed.forEachIndexed { index, time ->
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Column {
+          Text(formatTime(time), style = Numerals)
+          Text(toneLabel(ReminderPlan.tone(index, parsed.size)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        TextAction("Remove", onClick = { onChange(formatReminderTimes(parsed - time)) })
+      }
+    }
+    // Adding a time and hearing what a reminder sounds like belong together.
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+      if (parsed.size < ReminderScheduler.MAX_SLOTS) OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = onAdd, border = cardOutline()) { Text("Add reminder") }
+      if (onPreview != null) TextAction("Preview a reminder", onClick = onPreview)
+    }
+    if (parsed.size >= ReminderScheduler.MAX_SLOTS) {
+      Text("That's the maximum of ${ReminderScheduler.MAX_SLOTS} reminders a day.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
   }
 }
 

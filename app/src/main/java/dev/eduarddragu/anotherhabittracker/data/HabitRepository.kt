@@ -15,6 +15,8 @@ import dev.eduarddragu.anotherhabittracker.domain.LogRecord
 import dev.eduarddragu.anotherhabittracker.domain.PhoneClock
 import dev.eduarddragu.anotherhabittracker.domain.PickKind
 import dev.eduarddragu.anotherhabittracker.domain.TopicMark
+import dev.eduarddragu.anotherhabittracker.domain.TimeOff
+import dev.eduarddragu.anotherhabittracker.domain.TimeOffPeriod
 import dev.eduarddragu.anotherhabittracker.domain.TopicPick
 import dev.eduarddragu.anotherhabittracker.domain.TopicPicker
 import java.time.Clock
@@ -115,9 +117,11 @@ class HabitRepository(
    * and the app-level observer.
    */
   private val statuses: SharedFlow<List<HabitStatus>> =
-    combine(db.habits().observeAll(), db.entries().observeAll(), observeToday(), focus.all) { habits, entries, today, _ ->
+    combine(db.habits().observeAll(), db.entries().observeAll(), observeToday(), focus.all, db.timeOff().observeAll()) { habits, entries, today, _, timeOff ->
         val byHabit = entries.groupBy { it.habitId }
-        habits.map { status(it, byHabit[it.id].orEmpty(), today) }
+        val periods = timeOff.map { it.toPeriod() }
+        val paused = TimeOff.days(periods, today)
+        habits.map { status(it, byHabit[it.id].orEmpty(), today, paused, periods) }
       }
       .flowOn(Dispatchers.Default)
       .shareIn(scope, SharingStarted.WhileSubscribed(5_000), replay = 1)
@@ -137,8 +141,34 @@ class HabitRepository(
     withContext(Dispatchers.Default) {
       val byHabit = db.entries().all().groupBy { it.habitId }
       val today = today()
-      db.habits().all().map { status(it, byHabit[it.id].orEmpty(), today) }
+      val periods = db.timeOff().all().map { it.toPeriod() }
+      val paused = TimeOff.days(periods, today)
+      db.habits().all().map { status(it, byHabit[it.id].orEmpty(), today, paused, periods) }
     }
+
+  /** Every time off period, oldest first. */
+  fun observeTimeOff(): Flow<List<TimeOffPeriod>> = db.timeOff().observeAll().map { rows -> rows.map { it.toPeriod() } }
+
+  /**
+   * Starts time off on [start] (today or earlier), open or up to [end]. A period already covering
+   * those days is cut short the day before, so periods never overlap.
+   */
+  suspend fun startTimeOff(start: LocalDate, end: LocalDate? = null) =
+    db.withTransaction {
+      db.timeOff().all().filter { it.end == null || !it.end.isBefore(start) }.forEach { row ->
+        if (!row.start.isBefore(start)) db.timeOff().delete(row.id) else db.timeOff().update(row.copy(end = start.minusDays(1)))
+      }
+      db.timeOff().insert(TimeOffRow(start = start, end = end))
+    }
+
+  /** Ends a period with [lastDay] off; one that would end before it starts is removed. */
+  suspend fun endTimeOff(id: Long, lastDay: LocalDate) =
+    db.withTransaction {
+      val row = db.timeOff().all().firstOrNull { it.id == id } ?: return@withTransaction
+      if (lastDay.isBefore(row.start)) db.timeOff().delete(id) else db.timeOff().update(row.copy(end = lastDay))
+    }
+
+  suspend fun deleteTimeOff(id: Long) = db.timeOff().delete(id)
 
   suspend fun habit(id: Long): Habit? = db.habits().byId(id)
 
@@ -147,7 +177,10 @@ class HabitRepository(
   suspend fun status(habitId: Long): HabitStatus? =
     db.habits().byId(habitId)?.let { habit ->
       val entries = db.entries().forHabit(habitId)
-      withContext(Dispatchers.Default) { status(habit, entries, today()) }
+      val today = today()
+      val periods = db.timeOff().all().map { it.toPeriod() }
+      val paused = TimeOff.days(periods, today)
+      withContext(Dispatchers.Default) { status(habit, entries, today, paused, periods) }
     }
 
   /**
@@ -204,7 +237,7 @@ class HabitRepository(
 
   /** One consistent snapshot of everything, for the backup file. */
   suspend fun backup(appVersionCode: Long): BackupFile =
-    db.withTransaction { backupOf(db.habits().all(), db.entries().all(), ZonedDateTime.now(clock), appVersionCode, curriculum.version) }
+    db.withTransaction { backupOf(db.habits().all(), db.entries().all(), ZonedDateTime.now(clock), appVersionCode, curriculum.version, db.timeOff().all()) }
 
   /**
    * Replaces everything with [file], in one transaction: either the whole file is in, or nothing
@@ -215,6 +248,8 @@ class HabitRepository(
       val before = db.habits().all()
       db.entries().deleteAll()
       db.habits().deleteAll()
+      db.timeOff().deleteAll()
+      db.timeOff().insertAll(file.timeOff.map { it.toRow() })
       db.habits().insertAll(file.habits.map { it.toHabit() })
       // A freeze that shares its day with a session is dropped: the session replaced it.
       val sessionDays = file.entries.filter { it.type == EntryType.SESSION.name }.map { it.habitId to it.day }.toSet()
@@ -241,14 +276,27 @@ class HabitRepository(
     }
   }
 
-  private fun status(habit: Habit, entries: List<Entry>, today: LocalDate): HabitStatus {
+  private fun status(habit: Habit, entries: List<Entry>, today: LocalDate, paused: Set<LocalDate> = emptySet(), timeOff: List<TimeOffPeriod> = emptyList()): HabitStatus {
     val records = entries.map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId) }
-    val built = HabitSummaries.build(habit.kind, records, today) { curriculum }
+    val built = HabitSummaries.build(habit.kind, records, today, paused) { curriculum }
     // A "keep going" choice for today replaces the picker's topic everywhere: screens, widget, reminders.
     val chosen = focus.all.value[habit.id]?.takeIf { it.day == today }?.let { curriculum.byId[it.topicId] }
+    // Back from (or during) time off with nothing studied since it began: the topic of its first day
+    // is held and offered again, until it's logged. A topic chosen by hand still wins.
+    val held =
+      if (chosen == null && habit.kind == HabitKind.STUDY) {
+        TimeOff.heldSince(timeOff, today, entries.filter { it.type == EntryType.SESSION }.map { it.day }.toSet())?.let { start ->
+          TopicPicker.pickOn(curriculum, HabitSummaries.topicMarks(records), start)?.topic?.takeIf { it.id !in built.topicMarks || built.topicMarks[it.id]?.known != true }
+        }
+      } else null
     // A chosen topic that is due for review reads as a review; otherwise it's the one being continued.
     val chosenKind = chosen?.let { topic -> if (built.topicMarks[topic.id]?.let { TopicPicker.dueDate(it)?.isAfter(today) == false } == true) PickKind.REVIEW else PickKind.CONTINUE }
-    val summary = if (chosen != null && habit.kind == HabitKind.STUDY) built.copy(pick = TopicPick(chosen, chosenKind!!)) else built
+    val summary =
+      when {
+        chosen != null && habit.kind == HabitKind.STUDY -> built.copy(pick = TopicPick(chosen, chosenKind!!))
+        held != null -> built.copy(pick = TopicPick(held, PickKind.CONTINUE))
+        else -> built
+      }
     // Sessions and freezes: both are things he did on a day, and both can be taken back from Recent.
     val sessionDays = entries.filter { it.type == EntryType.SESSION }.map { it.day }.toSet()
     val recent = entries.filter { it.type == EntryType.SESSION || (it.type == EntryType.FREEZE && it.day !in sessionDays) }.sortedWith(compareByDescending<Entry> { it.day }.thenByDescending { it.loggedAt })

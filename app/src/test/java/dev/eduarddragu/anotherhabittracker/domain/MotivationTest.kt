@@ -50,4 +50,12 @@ class MotivationTest {
     assert(lines.none { it.any(Char::isDigit) && "thirty" !in it }) { "unexpected number in $lines" }
     assertEquals(lines, (0L until 30L).map { Motivation.line(day.plusDays(it), false) })
   }
+
+  @Test
+  fun timeOffLinesAreStableThroughTheDayAndDifferPerCard() {
+    val day = java.time.LocalDate.of(2026, 10, 5)
+    assertEquals(Motivation.timeOffLine(day), Motivation.timeOffLine(day))
+    org.junit.Assert.assertNotEquals(Motivation.timeOffLine(day, 1), Motivation.timeOffLine(day, 2))
+    (0L..30L).forEach { org.junit.Assert.assertFalse(Motivation.timeOffLine(day.plusDays(it)).contains("—")) }
+  }
 }

@@ -17,3 +17,14 @@ fun StatBlock(value: String, caption: String, modifier: Modifier = Modifier) {
 }
 
 fun formatMinutes(minutes: Int): String = if (minutes >= 60) "${minutes / 60}h ${"%02d".format(minutes % 60)}" else "$minutes min"
+
+/** A duration as a stat reads it, with its units on both parts: "1h 45m", "2h", "45m". */
+fun formatDuration(minutes: Int): String {
+  val hours = minutes / 60
+  val rest = minutes % 60
+  return when {
+    hours == 0 -> "${rest}m"
+    rest == 0 -> "${hours}h"
+    else -> "${hours}h ${rest}m"
+  }
+}

@@ -29,7 +29,13 @@ data class BackupFile(
   val curriculumVersion: Int? = null,
   val habits: List<BackupHabit>,
   val entries: List<BackupEntry>,
+  /** Added in version 3. */
+  val timeOff: List<BackupTimeOff> = emptyList(),
 )
+
+/** A stretch of days off: ISO dates, [end] null while open. */
+@Serializable
+data class BackupTimeOff(val id: Long, val start: String, val end: String?)
 
 @Serializable
 data class BackupHabit(
@@ -40,6 +46,8 @@ data class BackupHabit(
   val linkedPackage: String?,
   val position: Int,
   val icon: String?,
+  /** Added in version 3; null means the same times as weekdays. */
+  val weekendReminderTimes: String? = null,
 )
 
 @Serializable
@@ -69,7 +77,7 @@ object Backups {
    * Bump for every change to the fields, added ones included: an older build must refuse a newer file
    * rather than drop what it doesn't know. Older files are brought up to date in [decode].
    */
-  const val VERSION = 2
+  const val VERSION = 3
 
   /** The name of the nightly file. */
   const val NIGHTLY_NAME = "$FORMAT.json"
@@ -79,8 +87,8 @@ object Backups {
     encodeDefaults = true
   }
 
-  fun create(habits: List<BackupHabit>, entries: List<BackupEntry>, now: OffsetDateTime, zone: String, appVersionCode: Long, dbSchema: Int, curriculumVersion: Int?) =
-    BackupFile(FORMAT, VERSION, now.toString(), zone, appVersionCode, dbSchema, curriculumVersion, habits, entries)
+  fun create(habits: List<BackupHabit>, entries: List<BackupEntry>, now: OffsetDateTime, zone: String, appVersionCode: Long, dbSchema: Int, curriculumVersion: Int?, timeOff: List<BackupTimeOff> = emptyList()) =
+    BackupFile(FORMAT, VERSION, now.toString(), zone, appVersionCode, dbSchema, curriculumVersion, habits, entries, timeOff)
 
   fun encode(file: BackupFile): String = json.encodeToString(BackupFile.serializer(), file)
 
@@ -109,6 +117,12 @@ object Backups {
       check(runCatching { LocalDate.parse(entry.day) }.isSuccess) { "A session in this file has an unreadable date." }
       check(entry.score == null || entry.score in 1..5) { "A session in this file has a score outside 1 to 5." }
       check(entry.minutes == null || entry.minutes >= 0) { "A session in this file has negative minutes." }
+    }
+    file.timeOff.forEach { period ->
+      val start = runCatching { LocalDate.parse(period.start) }.getOrNull()
+      val end = period.end?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+      check(start != null && (period.end == null || end != null)) { "A time off period in this file has an unreadable date." }
+      check(end == null || !end.isBefore(start)) { "A time off period in this file ends before it starts." }
     }
     return file
   }
