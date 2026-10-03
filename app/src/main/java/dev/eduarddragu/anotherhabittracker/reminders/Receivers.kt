@@ -13,7 +13,7 @@ import dev.eduarddragu.anotherhabittracker.domain.RecapHabit
 import dev.eduarddragu.anotherhabittracker.domain.WeeklyRecap
 import dev.eduarddragu.anotherhabittracker.domain.ReminderMessages
 import dev.eduarddragu.anotherhabittracker.domain.ReminderPlan
-import dev.eduarddragu.anotherhabittracker.domain.parseReminderTimes
+import dev.eduarddragu.anotherhabittracker.data.reminderTimesOn
 import dev.eduarddragu.anotherhabittracker.widget.HabitWidgets
 import java.time.LocalTime
 import kotlinx.coroutines.launch
@@ -38,7 +38,7 @@ private fun BroadcastReceiver.runAsync(context: Context, block: suspend (HabitAp
 
 /** Posts the reminder of [slot] for [habit] if its day is still open and he isn't already on it. */
 private suspend fun remind(context: Context, app: HabitApp, habit: Habit, slot: Int) {
-  val times = parseReminderTimes(habit.reminderTimes)
+  val times = habit.reminderTimesOn(app.repository.today())
   if (slot >= times.size) return
   val status = app.repository.status(habit.id) ?: return
   if (!status.summary.dayOpen) return
@@ -135,7 +135,7 @@ class RescheduleReceiver : BroadcastReceiver() {
         val now = LocalTime.now()
         habits
           .filterNot { Notifications.isShowing(context, it.id) }
-          .forEach { habit -> ReminderPlan.lastPassedSlot(parseReminderTimes(habit.reminderTimes), now)?.let { remind(context, app, habit, it) } }
+          .forEach { habit -> ReminderPlan.lastPassedSlot(habit.reminderTimesOn(app.repository.today()), now)?.let { remind(context, app, habit, it) } }
       }
       HabitWidgets.refresh(context)
     }
@@ -189,7 +189,8 @@ class RecapReceiver : BroadcastReceiver() {
     runAsync(context) { app ->
       app.scheduler.scheduleRecap()
       val statuses = app.repository.statuses()
-      if (statuses.isEmpty()) return@runAsync
+      // On time off, no recap: the week isn't one to report on.
+      if (statuses.isEmpty() || statuses.any { it.summary.pausedToday }) return@runAsync
       val habits =
         statuses.map { status ->
           RecapHabit(status.habit.name, status.habit.kind, status.recent.map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId) }, status.streak)

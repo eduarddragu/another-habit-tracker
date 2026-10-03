@@ -1,5 +1,6 @@
 package dev.eduarddragu.anotherhabittracker.reminders
 
+import dev.eduarddragu.anotherhabittracker.data.reminderTimesOn
 import dev.eduarddragu.anotherhabittracker.domain.WeeklyRecap
 import android.annotation.SuppressLint
 import android.app.AlarmManager
@@ -32,13 +33,15 @@ class ReminderScheduler(private val context: Context) {
 
   fun schedule(habit: Habit, now: ZonedDateTime = ZonedDateTime.now()) {
     // Request codes are habitId * MAX_SLOTS + slot, so more slots would collide with the next habit.
-    val times = parseReminderTimes(habit.reminderTimes).take(MAX_SLOTS)
-    times.forEachIndexed { slot, time ->
-      val trigger = ReminderPlan.nextTrigger(time, now)
-      setAlarm(trigger.toInstant().toEpochMilli(), pendingIntent(habit.id, slot))
+    // Slot n is the n-th time of whichever day comes next that has one: weekdays and weekends can
+    // have different lists.
+    val slots = minOf(MAX_SLOTS, maxOf(parseReminderTimes(habit.reminderTimes).size, habit.weekendReminderTimes?.let { parseReminderTimes(it).size } ?: 0))
+    for (slot in 0 until slots) {
+      val trigger = ReminderPlan.nextSlotTrigger(slot, now) { day -> habit.reminderTimesOn(day).take(MAX_SLOTS) }
+      if (trigger != null) setAlarm(trigger.toInstant().toEpochMilli(), pendingIntent(habit.id, slot))
     }
     // Slots removed from the habit must stop firing.
-    for (slot in times.size until MAX_SLOTS) {
+    for (slot in slots until MAX_SLOTS) {
       existingIntent(habit.id, slot)?.let {
         alarms.cancel(it)
         it.cancel()

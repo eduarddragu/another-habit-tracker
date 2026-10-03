@@ -104,6 +104,7 @@ import dev.eduarddragu.anotherhabittracker.ui.home.endsAtClock
 import dev.eduarddragu.anotherhabittracker.ui.home.suggestedMinutes
 import dev.eduarddragu.anotherhabittracker.ui.home.startSession
 import dev.eduarddragu.anotherhabittracker.ui.components.WeekStrip
+import dev.eduarddragu.anotherhabittracker.ui.components.formatDuration
 import dev.eduarddragu.anotherhabittracker.ui.components.formatMinutes
 import dev.eduarddragu.anotherhabittracker.ui.components.gutter
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
@@ -157,6 +158,8 @@ fun HabitDetailScreen(
   onLogOnDay: (LocalDate) -> Unit,
   /** Opens the log form for a finished focus session: its minutes and its day (epoch day). */
   onLogMinutes: (Int, Long) -> Unit,
+  /** A session was started here: back to Home, where the planet is the timer (the card under it keeps the topic and its questions). */
+  onSessionStarted: () -> Unit,
   /** Shows a message with an Undo action. */
   onUndoable: (String, () -> Unit) -> Unit,
   onMessage: (String) -> Unit,
@@ -203,7 +206,7 @@ fun HabitDetailScreen(
           onKnown = { id -> viewModel.markKnown(id) { marked -> if (marked.isNotEmpty()) onUndoable("Marked as known") { viewModel.unmark(marked) } } },
           onKeepGoing = viewModel::keepGoing,
           onCurriculum = onCurriculum,
-          onStart = if (session == null) { minutes -> startSession(app, status, minutes) } else null,
+          onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null,
           session = session?.takeIf { it.habitId == habitId },
           now = tick,
           onEndSession = { Sessions.end(app) },
@@ -215,7 +218,7 @@ fun HabitDetailScreen(
     // Meditation gets today's practice, with its actions inside the card like the study topic.
     val practice = if (!study && Practices.appliesTo(status.habit.name, status.habit.linkedPackage)) Practices.forDay(status.today) else null
     if (practice != null) {
-      item { TodaysPractice(status, practice, onLog = onLog, onStart = if (session == null) { minutes -> startSession(app, status, minutes) } else null, modifier = Modifier.gutter().rise(arrival[2], 32.dp)) }
+      item { TodaysPractice(status, practice, onLog = onLog, onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null, modifier = Modifier.gutter().rise(arrival[2], 32.dp)) }
     } else if (!study || status.habit.linkedPackage != null) {
       item {
         FlowRow(Modifier.gutter().rise(arrival[3], 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -520,7 +523,8 @@ private fun StatRow(status: HabitStatus, modifier: Modifier = Modifier) {
   val values =
     listOfNotNull(
       "${stats.daysLast30}/30" to "last 30 days",
-      stats.minutesLast30.takeIf { it > 0 }?.let { formatMinutes(it) to "minutes, 30 days" },
+      // Units on the number ("1h 45m"), the window in the caption, joined by a dot like every label.
+      stats.minutesLast30.takeIf { it > 0 }?.let { formatDuration(it) to "time · 30 days" },
       if (status.habit.kind == HabitKind.STUDY) stats.averageScoreLast30?.let { "%.1f".format(Locale.ENGLISH, it) to "avg score" }
       else averagePerSession(stats.totalMinutes, stats.totalSessions)?.let { it to "per session" },
     )
@@ -606,4 +610,4 @@ private fun EntryRow(
   }
 }
 
-private fun averagePerSession(totalMinutes: Int, sessions: Int): String? = if (sessions == 0 || totalMinutes == 0) null else formatMinutes(totalMinutes / sessions)
+private fun averagePerSession(totalMinutes: Int, sessions: Int): String? = if (sessions == 0 || totalMinutes == 0) null else formatDuration(totalMinutes / sessions)

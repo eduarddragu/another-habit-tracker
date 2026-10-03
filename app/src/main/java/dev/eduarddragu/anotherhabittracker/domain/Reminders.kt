@@ -42,6 +42,30 @@ object ReminderPlan {
     }
 
   /**
+   * The reminder times for [day]: the weekend list on Saturday and Sunday when the habit has one,
+   * the weekday list otherwise (workdays want lunch and evening; weekends can be spread out).
+   */
+  fun timesOn(day: LocalDate, weekdays: List<LocalTime>, weekend: List<LocalTime>?): List<LocalTime> =
+    if (weekend != null && isWeekend(day)) weekend else weekdays
+
+  fun isWeekend(day: LocalDate): Boolean = day.dayOfWeek == java.time.DayOfWeek.SATURDAY || day.dayOfWeek == java.time.DayOfWeek.SUNDAY
+
+  /**
+   * The next time reminder [slot] fires strictly after [now]: the slot-th time of the first day (today
+   * or later) whose list has that many. Null when no day of the week has it.
+   */
+  fun nextSlotTrigger(slot: Int, now: ZonedDateTime, timesFor: (LocalDate) -> List<LocalTime>): ZonedDateTime? {
+    for (offset in 0L..7L) {
+      val day = now.toLocalDate().plusDays(offset)
+      val time = timesFor(day).getOrNull(slot) ?: continue
+      val at = ZonedDateTime.of(day, time, now.zone)
+      // A slot in a spring-forward gap moves to the first valid instant (ZonedDateTime.of does that).
+      if (at.isAfter(now)) return at
+    }
+    return null
+  }
+
+  /**
    * The latest slot of today that has already passed, if any. Used to catch up once when alarms were
    * lost (phone off or rebooting at reminder time, clock changed).
    */

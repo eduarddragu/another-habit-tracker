@@ -38,6 +38,7 @@ import dev.eduarddragu.anotherhabittracker.ui.backup.BackupScreen
 import dev.eduarddragu.anotherhabittracker.ui.curriculum.CurriculumScreen
 import dev.eduarddragu.anotherhabittracker.ui.detail.HabitDetailScreen
 import dev.eduarddragu.anotherhabittracker.ui.guard.GuardSettingsScreen
+import dev.eduarddragu.anotherhabittracker.ui.timeoff.TimeOffScreen
 import dev.eduarddragu.anotherhabittracker.ui.home.HomeScreen
 import dev.eduarddragu.anotherhabittracker.ui.log.LogScreen
 import dev.eduarddragu.anotherhabittracker.ui.settings.HabitSettingsScreen
@@ -150,6 +151,7 @@ fun MainNavigation(
               onOpen = { backStack.add(HabitDetail(it)) },
               onBackup = { backStack.add(Backup) },
               onGuard = { backStack.add(Guard) },
+              onTimeOff = { backStack.add(TimeOffKey) },
               onLogSession = { habitId, minutes, day -> backStack.add(LogEntry(habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
               modifier = screen,
             )
@@ -163,6 +165,7 @@ fun MainNavigation(
               onCurriculum = { backStack.add(CurriculumBrowser(key.habitId)) },
               onEditEntry = { backStack.add(LogEntry(key.habitId, it)) },
               onLogOnDay = { backStack.add(LogEntry(key.habitId, onDay = it.toEpochDay())) },
+              onSessionStarted = { while (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
               onLogMinutes = { minutes, day -> backStack.add(LogEntry(key.habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
               onUndoable = ::undoable,
               onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } },
@@ -171,6 +174,7 @@ fun MainNavigation(
           }
           entry<Backup> { BackupScreen(app = app, modifier = screen) }
           entry<Guard> { GuardSettingsScreen(app = app, modifier = screen) }
+          entry<TimeOffKey> { TimeOffScreen(app = app, modifier = screen) }
           entry<CurriculumBrowser> { key -> CurriculumScreen(app = app, habitId = key.habitId, onUndoable = ::undoable, modifier = screen) }
           entry<LogEntry>(metadata = sheetMetadata) { key -> LogScreen(app = app, habitId = key.habitId, entryId = key.entryId, onDay = key.onDay, prefillMinutes = key.minutes, onDone = { finish(key, it) }, modifier = screen) }
           entry<HabitSettings> { key -> HabitSettingsScreen(app = app, habitId = key.habitId, onDone = { finish(key, it) }, modifier = screen) }

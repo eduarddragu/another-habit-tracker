@@ -23,6 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -139,12 +141,14 @@ fun SessionCard(
   status: HabitStatus?,
   curriculum: Curriculum,
   onLog: (habitId: Long, minutes: Int?, day: Long) -> Unit,
+  /** A tap on the card opens the habit's page, like the habit cards do. */
+  onOpen: (Long) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val phase = session.phase(now)
   val topic = session.topicId?.let { curriculum.byId[it] }
   // Warm only for a session that counted; one too short to log stays plain.
-  DayCard(done = phase == SessionPhase.FINISHED && session.minutesToLog(now) != null, modifier = modifier) {
+  DayCard(done = phase == SessionPhase.FINISHED && session.minutesToLog(now) != null, modifier = modifier.clip(MaterialTheme.shapes.large).clickable(onClickLabel = "Open ${session.habitName}") { onOpen(session.habitId) }) {
     val state = when {
       phase != SessionPhase.FINISHED -> "NOW"
       session.minutesToLog(now) != null -> "DONE"

@@ -13,6 +13,8 @@ data class HabitSummary(
   val today: LocalDate,
   val doneToday: Boolean,
   val frozenToday: Boolean,
+  /** Today is a day off (see TimeOff): nothing nags. */
+  val pausedToday: Boolean = false,
   val canFreezeToday: Boolean,
   /** The day this week's freeze went on, or null while it's still available. */
   val freezeUsedOn: LocalDate?,
@@ -29,17 +31,20 @@ data class HabitSummary(
 ) {
   /** A reminder is only worth sending while the day is still open. */
   val dayOpen: Boolean
-    get() = !doneToday && !frozenToday
+    get() = !doneToday && !frozenToday && !pausedToday
 }
 
 object HabitSummaries {
   /** [curriculum] is only read for study habits. */
-  fun build(kind: HabitKind, records: List<LogRecord>, today: LocalDate, curriculum: () -> Curriculum): HabitSummary {
+  fun build(kind: HabitKind, records: List<LogRecord>, today: LocalDate, paused: Set<LocalDate> = emptySet(), curriculum: () -> Curriculum): HabitSummary {
     val sessions = records.filter { it.type == EntryType.SESSION }
     val sessionDays = sessions.map { it.day }.toSet()
     // A session and a freeze on the same day (data from before sessions replaced freezes): the
     // session wins, and the freeze counts neither for the streak nor as this week's freeze.
     val freezes = records.filter { it.type == EntryType.FREEZE }.map { it.day }.toSet() - sessionDays
+    // Days off bridge the streak like freezes, without touching the week's freeze.
+    val pausedDays = paused - sessionDays - freezes
+    val bridges = freezes + pausedDays
     val cells =
       records
         .filter { it.type != EntryType.KNOWN }
@@ -47,17 +52,18 @@ object HabitSummaries {
         .mapValues { (_, day) ->
           val daySessions = day.filter { it.type == EntryType.SESSION }
           Heatmap.cell(kind, DayLog(daySessions.map { it.score }, daySessions.map { it.minutes }, frozen = day.any { it.type == EntryType.FREEZE }))
-        }
+        } + pausedDays.associateWith { Heatmap.cell(kind, DayLog(emptyList(), emptyList(), frozen = true)) }
     val marks = if (kind == HabitKind.STUDY) topicMarks(records) else emptyList()
     return HabitSummary(
       today = today,
       doneToday = today in sessionDays,
       frozenToday = today in freezes,
+      pausedToday = today in pausedDays,
       canFreezeToday = Freezes.canFreeze(today, sessionDays, freezes),
       freezeUsedOn = Freezes.usedThisWeek(today, freezes),
-      canFreezeYesterday = Freezes.canSaveYesterday(today, sessionDays, freezes),
-      yesterdayEmpty = Freezes.yesterdayEmpty(today, sessionDays, freezes),
-      stats = Stats.of(sessions.map { Session(it.day, it.score, it.minutes) }, freezes, today),
+      canFreezeYesterday = today.minusDays(1) !in pausedDays && Freezes.canSaveYesterday(today, sessionDays, bridges),
+      yesterdayEmpty = Freezes.yesterdayEmpty(today, sessionDays, bridges),
+      stats = Stats.of(sessions.map { Session(it.day, it.score, it.minutes) }, bridges, today),
       cells = cells,
       pick = if (kind == HabitKind.STUDY) TopicPicker.pick(curriculum(), marks, today) else null,
       topicMarks = TopicPicker.latest(marks, today.plusDays(1)),

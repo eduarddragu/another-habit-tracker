@@ -105,7 +105,7 @@ import dev.eduarddragu.anotherhabittracker.domain.Motivation
 import dev.eduarddragu.anotherhabittracker.domain.dayCount
 import dev.eduarddragu.anotherhabittracker.domain.Practices
 import dev.eduarddragu.anotherhabittracker.domain.formatTime
-import dev.eduarddragu.anotherhabittracker.domain.parseReminderTimes
+import dev.eduarddragu.anotherhabittracker.data.reminderTimesOn
 import dev.eduarddragu.anotherhabittracker.theme.Motion
 import dev.eduarddragu.anotherhabittracker.theme.NumeralsLarge
 import dev.eduarddragu.anotherhabittracker.theme.fadeThrough
@@ -171,6 +171,7 @@ fun HomeScreen(
   onOpen: (Long) -> Unit,
   onBackup: () -> Unit,
   onGuard: () -> Unit,
+  onTimeOff: () -> Unit,
   /** Opens the log form for a finished session: its habit, the minutes it counted, its day. */
   onLogSession: (habitId: Long, minutes: Int?, day: Long) -> Unit,
   modifier: Modifier = Modifier,
@@ -181,6 +182,8 @@ fun HomeScreen(
   val done = current.habits.count { it.doneToday || it.frozenToday }
   val everythingDone = current.habits.isNotEmpty() && done == current.habits.size
   val streak = current.habits.maxOfOrNull { it.streak } ?: 0
+  // A day off: the page drops the pressure (no "0 of 2", no provocations).
+  val paused = current.habits.isNotEmpty() && current.habits.all { it.summary.pausedToday || it.doneToday }  && current.habits.any { it.summary.pausedToday }
   // Read before rememberIntro marks the entrance as played.
   val firstRun = remember { !HomeOnce.introPlayed }
   val now = rememberMinute()
@@ -235,9 +238,10 @@ fun HomeScreen(
         if (inSession && active != null) {
           SessionHeader(active, tick)
         } else {
-          // A streak reaching a milestone today takes over the line of the day.
+          // A streak reaching a milestone today takes over the line of the day; time off, everything.
           val milestone = current.habits.filter { it.doneToday }.firstNotNullOfOrNull { Milestones.line(it.streak) }
-          Hero(current.today, now, "$done OF ${current.habits.size} DONE", milestone ?: Motivation.line(current.today, everythingDone, streak), intro)
+          val line = if (paused) Motivation.timeOffLine(current.today) else milestone ?: Motivation.line(current.today, everythingDone, streak)
+          Hero(current.today, now, if (paused) "TIME OFF" else "$done OF ${current.habits.size} DONE", line, intro)
         }
       }
       // Still while it's a timer: nothing moves but the arc, once a second.
@@ -298,7 +302,7 @@ fun HomeScreen(
         label = "bottom",
       ) { inSession ->
       if (inSession && active != null) {
-        SessionCard(app, active, tick, current.habits.firstOrNull { it.habit.id == active.habitId }, viewModel.curriculum, onLog = onLogSession)
+        SessionCard(app, active, tick, current.habits.firstOrNull { it.habit.id == active.habitId }, viewModel.curriculum, onLog = onLogSession, onOpen = onOpen)
       } else Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!notificationsEnabled) {
           WarningCard("Notifications are off", "Without them there are no reminders.", "Turn on", onEnableNotifications)
@@ -319,7 +323,7 @@ fun HomeScreen(
           guardOn = app.guard.serviceEnabled()
           onPauseOrDispose {}
         }
-        FooterLine(nightly, guardOn, onBackup, onGuard, Modifier.rise(intro.last()))
+        FooterLine(nightly, guardOn, onTimeOff = paused, onBackup = onBackup, onGuard = onGuard, openTimeOff = onTimeOff, modifier = Modifier.rise(intro.last()))
       }
       }
     }
@@ -332,7 +336,7 @@ fun HomeScreen(
  * touch height, rather than links inside one line.
  */
 @Composable
-private fun FooterLine(nightly: NightlyState, guardOn: Boolean, onBackup: () -> Unit, onGuard: () -> Unit, modifier: Modifier = Modifier) {
+private fun FooterLine(nightly: NightlyState, guardOn: Boolean, onTimeOff: Boolean, onBackup: () -> Unit, onGuard: () -> Unit, openTimeOff: () -> Unit, modifier: Modifier = Modifier) {
   val saved = nightly.lastSaved
   val stale = nightly.uri != null && (saved == null || Duration.between(saved, Instant.now()) > Duration.ofHours(48))
   val warning = nightly.lastError != null || stale
@@ -368,6 +372,16 @@ private fun FooterLine(nightly: NightlyState, guardOn: Boolean, onBackup: () -> 
         modifier = Modifier.clickable(role = Role.Button, onClick = onGuard).padding(vertical = 16.dp),
       )
     }
+    // Time off: always one tap away, and says so when it's on.
+    Text(
+      buildAnnotatedString {
+        append("TIME OFF ")
+        withStyle(accent) { append(if (onTimeOff) "ON" else "TAKE SOME") }
+      },
+      style = style,
+      color = muted,
+      modifier = Modifier.clickable(role = Role.Button, onClick = openTimeOff).padding(bottom = 16.dp),
+    )
   }
 }
 
@@ -565,7 +579,7 @@ private fun WarningCard(title: String, body: String, action: String?, onAction: 
 }
 
 /** The day's last reminder, once it has gone off; null before that. */
-private fun lastCall(status: HabitStatus, now: LocalTime): LocalTime? = parseReminderTimes(status.habit.reminderTimes).lastOrNull()?.takeIf { !now.isBefore(it) }
+private fun lastCall(status: HabitStatus, now: LocalTime): LocalTime? = status.habit.reminderTimesOn(status.today).lastOrNull()?.takeIf { !now.isBefore(it) }
 
 /** Still open after the last call: the one "hot" state the home has. */
 private fun urgent(status: HabitStatus, now: LocalTime): Boolean = status.summary.dayOpen && lastCall(status, now) != null
@@ -574,10 +588,12 @@ private fun contextLine(status: HabitStatus, now: LocalTime): String {
   val last = lastCall(status, now)
   return when {
     status.frozenToday -> "Frozen today. The streak is safe."
+    // A day off: no reminder times, just a kind word.
+    status.summary.pausedToday -> Motivation.timeOffLine(status.today, salt = status.habit.id.toInt())
     status.doneToday -> "Done for today."
     last != null -> "Last call was ${formatTime(last)}." + if (status.streak > 0) " ${dayCount(status.streak)} on the line." else ""
     else -> {
-      val next = parseReminderTimes(status.habit.reminderTimes).firstOrNull { it.isAfter(now) }
+      val next = status.habit.reminderTimesOn(status.today).firstOrNull { it.isAfter(now) }
       if (next != null) "Next reminder at ${formatTime(next)}" else "No more reminders today"
     }
   }
