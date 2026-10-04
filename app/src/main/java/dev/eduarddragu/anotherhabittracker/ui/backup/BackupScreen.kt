@@ -61,7 +61,13 @@ class BackupViewModel(private val app: HabitApp) : ViewModel() {
 
   fun today() = app.repository.today()
 
-  fun chooseNightly(uri: Uri) = run("Nightly backup set up and saved.") { app.backups.chooseNightly(uri) }
+  // The first save never throws (its outcome is recorded for Home), so a failure is read back here:
+  // "set up and saved" must not show under an error.
+  fun chooseNightly(uri: Uri) =
+    run("Nightly backup set up and saved.") {
+      app.backups.chooseNightly(uri)
+      app.backups.nightly.value.lastError?.let { throw BackupException(it) }
+    }
 
   fun saveNow() = run(null) { app.backups.save() }
 

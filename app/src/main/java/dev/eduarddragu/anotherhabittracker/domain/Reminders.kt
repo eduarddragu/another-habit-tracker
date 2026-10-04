@@ -32,6 +32,15 @@ object ReminderPlan {
     return if (today.isAfter(now)) today else ZonedDateTime.of(now.toLocalDate().plusDays(1), slot, now.zone)
   }
 
+  /**
+   * The next midnight refresh, 30 s into a day, strictly after [now]. A process that starts in the
+   * first 30 s of a day gets today's: tomorrow's would replace the alarm still due and skip a rollover.
+   */
+  fun nextMidnight(now: ZonedDateTime): ZonedDateTime {
+    val today = now.toLocalDate().atStartOfDay(now.zone).plusSeconds(30)
+    return if (today.isAfter(now)) today else now.toLocalDate().plusDays(1).atStartOfDay(now.zone).plusSeconds(30)
+  }
+
   /** First slot opens the day, last one is the last call, the rest get louder in the second half. */
   fun tone(index: Int, count: Int): Tone =
     when {

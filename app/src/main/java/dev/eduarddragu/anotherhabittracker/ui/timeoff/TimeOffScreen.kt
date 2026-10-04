@@ -36,6 +36,7 @@ import dev.eduarddragu.anotherhabittracker.reminders.Notifications
 import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
 import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
+import dev.eduarddragu.anotherhabittracker.ui.components.launchSafely
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
 import dev.eduarddragu.anotherhabittracker.ui.components.rise
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
@@ -46,7 +47,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 class TimeOffViewModel(private val app: HabitApp) : ViewModel() {
   val periods = app.repository.observeTimeOff().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -55,15 +55,15 @@ class TimeOffViewModel(private val app: HabitApp) : ViewModel() {
 
   /** Starts it, and clears any reminder already up: nothing nags from here. */
   fun start(from: LocalDate, until: LocalDate?) =
-    viewModelScope.launch {
+    launchSafely {
       app.repository.startTimeOff(from, until)
       Notifications.dismissAll(app)
     }
 
   /** Back today: the last day off was yesterday (a period that started today simply goes away). */
-  fun end(period: TimeOffPeriod) = viewModelScope.launch { app.repository.endTimeOff(period.id, today().minusDays(1)) }
+  fun end(period: TimeOffPeriod) = launchSafely { app.repository.endTimeOff(period.id, today().minusDays(1)) }
 
-  fun remove(period: TimeOffPeriod) = viewModelScope.launch { app.repository.deleteTimeOff(period.id) }
+  fun remove(period: TimeOffPeriod) = launchSafely { app.repository.deleteTimeOff(period.id) }
 }
 
 private val DAY = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)

@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** A habit, its sessions and freezes (newest first) and today's summary. */
@@ -79,7 +80,7 @@ class HabitRepository(
   private val db: AppDatabase,
   private val loadCurriculum: () -> Curriculum,
   private val focus: FocusStore,
-  scope: CoroutineScope,
+  private val scope: CoroutineScope,
   private val clock: Clock = PhoneClock,
 ) {
   val curriculum: Curriculum by lazy(loadCurriculum)
@@ -146,17 +147,30 @@ class HabitRepository(
       db.habits().all().map { status(it, byHabit[it.id].orEmpty(), today, paused, periods) }
     }
 
+  /** Every day off up to today. */
+  suspend fun daysOff(): Set<LocalDate> = TimeOff.days(db.timeOff().all().map { it.toPeriod() }, today())
+
   /** Every time off period, oldest first. */
   fun observeTimeOff(): Flow<List<TimeOffPeriod>> = db.timeOff().observeAll().map { rows -> rows.map { it.toPeriod() } }
 
   /**
-   * Starts time off on [start] (today or earlier), open or up to [end]. A period already covering
-   * those days is cut short the day before, so periods never overlap.
+   * Starts time off on [start] (today or earlier), open or up to [end]. Periods sharing those days
+   * keep only the days outside it (`TimeOff.outside`), so periods never overlap and no other day off
+   * is lost.
    */
-  suspend fun startTimeOff(start: LocalDate, end: LocalDate? = null) =
+  suspend fun startTimeOff(start: LocalDate, end: LocalDate? = null): Unit =
     db.withTransaction {
-      db.timeOff().all().filter { it.end == null || !it.end.isBefore(start) }.forEach { row ->
-        if (!row.start.isBefore(start)) db.timeOff().delete(row.id) else db.timeOff().update(row.copy(end = start.minusDays(1)))
+      val rows = db.timeOff().all()
+      // Days already off: nothing to add, and splitting that period would only move where it starts.
+      if (rows.any { it.toPeriod().contains(start) && (it.end == null || (end != null && !it.end.isBefore(end))) }) return@withTransaction
+      rows.forEach { row ->
+        val period = row.toPeriod()
+        val left = TimeOff.outside(period, start, end)
+        if (left == listOf(period)) return@forEach
+        if (left.isEmpty()) db.timeOff().delete(row.id)
+        left.forEach { piece ->
+          if (piece.id == row.id) db.timeOff().update(TimeOffRow(row.id, piece.start, piece.end)) else db.timeOff().insert(TimeOffRow(start = piece.start, end = piece.end))
+        }
       }
       db.timeOff().insert(TimeOffRow(start = start, end = end))
     }
@@ -191,6 +205,17 @@ class HabitRepository(
     db.withTransaction {
       db.entries().forHabit(entry.habitId).filter { it.type == EntryType.FREEZE && it.day == entry.day }.forEach { db.entries().delete(it.id) }
       db.entries().insert(entry.copy(type = EntryType.SESSION))
+    }
+
+  /**
+   * "Done" from a notification: logs [entry] unless its day already has a session. Checked in the
+   * same transaction as the write, so two quick taps (or the form saving meanwhile) log only once.
+   */
+  suspend fun logSessionIfMissing(entry: Entry): Boolean =
+    db.withTransaction {
+      if (db.entries().forHabit(entry.habitId).any { it.type == EntryType.SESSION && it.day == entry.day }) return@withTransaction false
+      logSession(entry)
+      true
     }
 
   /** Returns false when the rules don't allow a freeze on that day. */
@@ -228,6 +253,14 @@ class HabitRepository(
   suspend fun deleteEntry(id: Long) = db.entries().delete(id)
 
   suspend fun unmarkKnown(habitId: Long, topicId: String) = db.entries().deleteKnown(habitId, topicId)
+
+  /**
+   * An undo of "known" marks. Runs in the app's scope: the snackbar outlives the screen that showed
+   * it, and that screen's ViewModel (and its scope) is gone once it's popped.
+   */
+  fun undoKnown(habitId: Long, topicIds: Set<String>) {
+    scope.launch { db.withTransaction { topicIds.forEach { db.entries().deleteKnown(habitId, it) } } }
+  }
 
   /** A study habit's topic as it was on [day] (for a session logged late). */
   suspend fun pickOn(habitId: Long, day: LocalDate): TopicPick? {
@@ -280,7 +313,8 @@ class HabitRepository(
     val records = entries.map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId) }
     val built = HabitSummaries.build(habit.kind, records, today, paused) { curriculum }
     // A "keep going" choice for today replaces the picker's topic everywhere: screens, widget, reminders.
-    val chosen = focus.all.value[habit.id]?.takeIf { it.day == today }?.let { curriculum.byId[it.topicId] }
+    // Marked as known since ("I know this" on it), it gives way to the picker; an undo brings it back.
+    val chosen = focus.all.value[habit.id]?.takeIf { it.day == today }?.let { curriculum.byId[it.topicId] }?.takeIf { built.topicMarks[it.id]?.known != true }
     // Back from (or during) time off with nothing studied since it began: the topic of its first day
     // is held and offered again, until it's logged. A topic chosen by hand still wins.
     val held =

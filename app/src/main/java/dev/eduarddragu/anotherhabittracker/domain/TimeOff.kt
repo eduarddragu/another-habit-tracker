@@ -34,6 +34,19 @@ object TimeOff {
     return latest.start.takeIf { start -> sessionDays.none { !it.isBefore(start) } }
   }
 
+  /**
+   * What is left of [period] once a new one from [start] to [end] (open while null) takes its days:
+   * the period itself when they don't overlap, nothing when the new one covers it, otherwise the days
+   * before and after it (two pieces when the new one falls inside). The first piece keeps the id.
+   */
+  fun outside(period: TimeOffPeriod, start: LocalDate, end: LocalDate?): List<TimeOffPeriod> {
+    val overlaps = (period.end == null || !period.end.isBefore(start)) && (end == null || !period.start.isAfter(end))
+    if (!overlaps) return listOf(period)
+    val before = if (period.start.isBefore(start)) period.copy(end = start.minusDays(1)) else null
+    val after = if (end != null && (period.end == null || period.end.isAfter(end))) TimeOffPeriod(if (before == null) period.id else 0, end.plusDays(1), period.end) else null
+    return listOfNotNull(before, after)
+  }
+
   /** How far back a period may start: enough to cover what was missed, not to rewrite history. */
   const val MAX_DAYS_BACK = 60L
 }

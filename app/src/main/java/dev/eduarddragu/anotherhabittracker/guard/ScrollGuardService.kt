@@ -1,6 +1,7 @@
 package dev.eduarddragu.anotherhabittracker.guard
 
 import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -51,6 +52,9 @@ class ScrollGuardService : AccessibilityService() {
         when (intent.action) {
           Intent.ACTION_SCREEN_OFF -> run(tracker.onScreenOff())
           Intent.ACTION_USER_PRESENT -> run(tracker.onScreenOn())
+          // Woken within the lock's grace time (or with no lock): the keyguard never shows, so no
+          // USER_PRESENT follows. With the keyguard up, USER_PRESENT comes once it's dismissed.
+          Intent.ACTION_SCREEN_ON -> if (!getSystemService(KeyguardManager::class.java).isKeyguardLocked) run(tracker.onScreenOn())
           Intent.ACTION_DATE_CHANGED -> run(tracker.onDayChanged())
         }
       }
@@ -61,6 +65,7 @@ class ScrollGuardService : AccessibilityService() {
       screen,
       IntentFilter().apply {
         addAction(Intent.ACTION_SCREEN_OFF)
+        addAction(Intent.ACTION_SCREEN_ON)
         addAction(Intent.ACTION_USER_PRESENT)
         addAction(Intent.ACTION_DATE_CHANGED)
       },

@@ -31,7 +31,6 @@ import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.LastBaseline
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.eduarddragu.anotherhabittracker.HabitApp
 import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
@@ -46,19 +45,19 @@ import dev.eduarddragu.anotherhabittracker.ui.components.HabitViewModel
 import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
 import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
+import dev.eduarddragu.anotherhabittracker.ui.components.launchSafely
 import dev.eduarddragu.anotherhabittracker.ui.components.opticalStart
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
 import dev.eduarddragu.anotherhabittracker.ui.components.rise
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
-import kotlinx.coroutines.launch
 
 class CurriculumViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app, habitId) {
   // Marking is idempotent, so no double-tap guard: tapping several topics quickly must all register.
-  fun markKnown(topicIds: Collection<String>, onMarked: (Set<String>) -> Unit = {}) = viewModelScope.launch { onMarked(app.repository.markKnown(habitId, topicIds)) }
+  fun markKnown(topicIds: Collection<String>, onMarked: (Set<String>) -> Unit = {}) = launchSafely { onMarked(app.repository.markKnown(habitId, topicIds)) }
 
-  fun unmark(topicIds: Set<String>) = viewModelScope.launch { topicIds.forEach { app.repository.unmarkKnown(habitId, it) } }
+  fun unmark(topicIds: Set<String>) = app.repository.undoKnown(habitId, topicIds)
 
-  fun unmarkKnown(topicId: String) = viewModelScope.launch { app.repository.unmarkKnown(habitId, topicId) }
+  fun unmarkKnown(topicId: String) = launchSafely { app.repository.unmarkKnown(habitId, topicId) }
 
   /** Makes [topicId] today's topic (null goes back to the picker's). */
   fun studyToday(topicId: String?) = app.repository.keepGoing(habitId, topicId)

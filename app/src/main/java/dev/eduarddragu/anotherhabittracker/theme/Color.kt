@@ -12,7 +12,7 @@ internal object Light {
   val borderStrong = Color(0xFFC9BFB4)
   // A touch deeper than the site's #C14F1E: small accent text on the tonal cards needs 4.5:1.
   val accent = Color(0xFFB04619)
-  val accentContainer = Color(0xFFF4DDD1)
+  val accentContainer = Color(0xFFF7E5DC)
 }
 
 internal object Dark {
@@ -24,5 +24,5 @@ internal object Dark {
   val borderStrong = Color(0xFF4A3F36)
   // A touch lighter than the site's #D9632F, for the same reason on the dark cards.
   val accent = Color(0xFFE8743F)
-  val accentContainer = Color(0xFF4A2A1B)
+  val accentContainer = Color(0xFF422518)
 }

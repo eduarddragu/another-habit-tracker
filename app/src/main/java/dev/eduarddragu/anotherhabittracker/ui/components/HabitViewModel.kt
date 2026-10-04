@@ -7,12 +7,29 @@ import dev.eduarddragu.anotherhabittracker.HabitApp
 import dev.eduarddragu.anotherhabittracker.data.HabitStatus
 import dev.eduarddragu.anotherhabittracker.domain.Curriculum
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/**
+ * Every action a screen starts goes through here: a failed write must not take the app down, so it's
+ * logged and the screen simply stays where it is. Cancellation (the screen going away) passes through.
+ */
+fun ViewModel.launchSafely(block: suspend () -> Unit): Job =
+  viewModelScope.launch {
+    try {
+      block()
+    } catch (error: CancellationException) {
+      throw error
+    } catch (error: Exception) {
+      Log.e(HabitApp.TAG, "Action failed", error)
+    }
+  }
 
 /** Base for screens about one habit: its live status, and actions that can't run twice at once. */
 abstract class HabitViewModel(protected val app: HabitApp, protected val habitId: Long) : ViewModel() {
@@ -33,12 +50,9 @@ abstract class HabitViewModel(protected val app: HabitApp, protected val habitId
   protected fun once(block: suspend () -> Unit) {
     if (!running.compareAndSet(false, true)) return
     _busy.value = true
-    viewModelScope.launch {
+    launchSafely {
       try {
         block()
-      } catch (error: Exception) {
-        // A failed write must not take the app down; the screen simply stays where it is.
-        Log.e(HabitApp.TAG, "Action failed", error)
       } finally {
         running.set(false)
         _busy.value = false

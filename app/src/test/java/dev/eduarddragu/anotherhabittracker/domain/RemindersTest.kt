@@ -85,4 +85,13 @@ class RemindersTest {
       }
     }
   }
+
+  @Test
+  fun midnightRefreshNeverSkipsADay() {
+    // A process starting in the first 30 s of a day keeps today's refresh, which hasn't fired yet.
+    assertEquals(at("2026-10-10", "00:00:30"), ReminderPlan.nextMidnight(at("2026-10-10", "00:00:10")))
+    // The refresh itself, firing at 00:00:30, schedules tomorrow's.
+    assertEquals(at("2026-10-11", "00:00:30"), ReminderPlan.nextMidnight(at("2026-10-10", "00:00:30")))
+    assertEquals(at("2026-10-11", "00:00:30"), ReminderPlan.nextMidnight(at("2026-10-10", "15:00")))
+  }
 }

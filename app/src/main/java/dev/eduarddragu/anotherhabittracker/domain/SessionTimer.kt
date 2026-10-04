@@ -76,6 +76,12 @@ data class FocusSession(
     if (finishedAt != null) this else copy(finishedAt = pausedAt ?: minOf(now, startedAt + pausedTotalMillis + totalMillis))
 
   /**
+   * Ended by the midnight refresh: a session from an earlier day left paused (or past its end with the
+   * alarm lost). One still running carries on past midnight and ends on its own alarm.
+   */
+  fun endsAtMidnight(today: LocalDate, now: Long): Boolean = finishedAt == null && day < today && phase(now) != SessionPhase.RUNNING
+
+  /**
    * The minutes to put in the log form: the full length when it ran out, whole minutes done when it
    * was ended early, nothing when it was too short to count.
    */

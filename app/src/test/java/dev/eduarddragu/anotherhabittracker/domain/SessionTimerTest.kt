@@ -93,4 +93,14 @@ class SessionTimerTest {
     assertEquals(SessionTimer.Display(1, false), session().display(start + 44 * min))
     assertEquals(SessionTimer.Display(60, true), session().display(start + 44 * min + 1))
   }
+
+  @Test
+  fun midnightEndsOnlyWhatIsLeftBehind() {
+    val tomorrow = day.plusDays(1)
+    // Started at 23:50: still running at 00:00:30, so it carries on and ends on its own alarm.
+    assertEquals(false, session(30).endsAtMidnight(tomorrow, start + 10 * min))
+    assertEquals(true, session(30).pause(start + 5 * min).endsAtMidnight(tomorrow, start + 10 * min))
+    assertEquals("alarm lost", true, session(30).endsAtMidnight(tomorrow, start + 40 * min))
+    assertEquals("today's", false, session(30).pause(start).endsAtMidnight(day, start + 10 * min))
+  }
 }

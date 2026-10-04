@@ -13,8 +13,10 @@ import dev.eduarddragu.anotherhabittracker.domain.RecapHabit
 import dev.eduarddragu.anotherhabittracker.domain.WeeklyRecap
 import dev.eduarddragu.anotherhabittracker.domain.ReminderMessages
 import dev.eduarddragu.anotherhabittracker.domain.ReminderPlan
+import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
 import dev.eduarddragu.anotherhabittracker.data.reminderTimesOn
 import dev.eduarddragu.anotherhabittracker.widget.HabitWidgets
+import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.launch
 
@@ -42,8 +44,9 @@ private suspend fun remind(context: Context, app: HabitApp, habit: Habit, slot: 
   if (slot >= times.size) return
   val status = app.repository.status(habit.id) ?: return
   if (!status.summary.dayOpen) return
-  // In a session on it right now: no nagging.
-  app.sessions.session.value?.let { if (it.habitId == habit.id && it.finishedAt == null && it.day == status.today) return }
+  // In a session on it right now: no nagging. A paused one doesn't count: paused and forgotten, the
+  // reminders (the last call above all) are what's left to save the day.
+  app.sessions.session.value?.let { if (it.habitId == habit.id && it.day == status.today && it.phase(app.sessions.now()) == SessionPhase.RUNNING) return }
   val tone = ReminderPlan.tone(slot, times.size)
   if (ReminderPlan.quieted(tone, System.currentTimeMillis(), app.quiet.until(habit.id))) return
   // Study reminders talk about today's topic and open with its first guiding question.
@@ -58,7 +61,7 @@ private suspend fun remind(context: Context, app: HabitApp, habit: Habit, slot: 
       slot = slot,
       openingBody = topic?.hints?.firstOrNull(),
     )
-  Notifications.show(context, habit, text, tone)
+  Notifications.show(context, habit, text, tone, status.today)
 }
 
 /** Fired by the alarm of one reminder slot. */
@@ -95,11 +98,11 @@ class MidnightReceiver : BroadcastReceiver() {
       app.scheduler.scheduleMidnightRefresh()
       Notifications.dismissAll(context)
       app.repository.refreshDay()
-      // A session from an earlier day: one left running or paused is ended; a finished one never
-      // logged is let go the night after.
+      // A session from an earlier day: see endsAtMidnight; a finished one never logged is let go the
+      // night after.
       app.sessions.session.value?.let {
         val today = app.repository.today()
-        if (it.finishedAt == null && it.day < today) Sessions.end(app)
+        if (it.endsAtMidnight(today, app.sessions.now())) Sessions.end(app)
         else if (it.finishedAt != null && it.day < today.minusDays(1)) Sessions.clear(app)
       }
       app.scheduler.scheduleAll(app.repository.habits())
@@ -161,10 +164,13 @@ class NotificationActionReceiver : BroadcastReceiver() {
       ACTION_DONE ->
         runAsync(context) { app ->
           val status = app.repository.status(habitId) ?: return@runAsync
+          // Last night's reminder, tapped in the seconds before midnight clears it: done yesterday.
+          val reminded = intent.getLongExtra(EXTRA_DAY, Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }?.let(LocalDate::ofEpochDay)
+          val yesterday = reminded == status.today.minusDays(1)
           // Logged like the form would, with the minutes of the last session (a usual length).
-          if (status.summary.dayOpen) {
+          if (yesterday || status.summary.dayOpen) {
             val minutes = status.recent.firstOrNull { it.type == EntryType.SESSION }?.minutes
-            app.repository.logSession(Entry(habitId = habitId, day = status.today, minutes = minutes))
+            app.repository.logSessionIfMissing(Entry(habitId = habitId, day = if (yesterday) status.today.minusDays(1) else status.today, minutes = minutes))
           }
           Notifications.dismiss(context, habitId)
         }
@@ -179,6 +185,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
     const val ACTION_DONE = "dev.eduarddragu.anotherhabittracker.DONE"
     const val ACTION_ON_IT = "dev.eduarddragu.anotherhabittracker.ON_IT"
     const val EXTRA_HABIT_ID = "habit_id"
+    const val EXTRA_DAY = "day"
   }
 }
 
@@ -193,10 +200,10 @@ class RecapReceiver : BroadcastReceiver() {
       if (statuses.isEmpty() || statuses.any { it.summary.pausedToday }) return@runAsync
       val habits =
         statuses.map { status ->
-          RecapHabit(status.habit.name, status.habit.kind, status.recent.map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId) }, status.streak)
+          RecapHabit(status.habit.name, status.habit.kind, status.recent.map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId) }, status.streak, status.since)
         }
       val curriculum = app.repository.curriculum
-      Notifications.showRecap(context, WeeklyRecap.build(habits, app.repository.today()) { curriculum.byId[it]?.title })
+      Notifications.showRecap(context, WeeklyRecap.build(habits, app.repository.today(), app.repository.daysOff()) { curriculum.byId[it]?.title })
     }
   }
 

@@ -23,6 +23,7 @@ import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
 import dev.eduarddragu.anotherhabittracker.domain.Topic
 import dev.eduarddragu.anotherhabittracker.domain.ReminderText
 import dev.eduarddragu.anotherhabittracker.domain.Tone
+import java.time.LocalDate
 
 object Notifications {
   // Sound and vibration of a channel can't be changed by the app once it exists (they belong to the
@@ -109,7 +110,8 @@ object Notifications {
   }
 
   /** One notification per habit: each reminder replaces the previous one. */
-  fun show(context: Context, habit: Habit, text: ReminderText, tone: Tone) {
+  /** [day]: the day the reminder is about, so "Done" tapped just after midnight still logs it. */
+  fun show(context: Context, habit: Habit, text: ReminderText, tone: Tone, day: LocalDate? = null) {
     val tapOpensPage = habit.kind == HabitKind.STUDY
     val manager = NotificationManagerCompat.from(context)
     if (!manager.areNotificationsEnabled()) return
@@ -130,7 +132,7 @@ object Notifications {
     // its app and On it; tapping the notification itself opens the log form.
     if (habit.kind == HabitKind.STUDY) builder.addAction(0, "Log", logIntent)
     // A habit without a score (meditation) can be marked done right here, without opening the app.
-    if (habit.kind == HabitKind.SIMPLE) builder.addAction(0, "Done", actionIntent(context, habit.id, NotificationActionReceiver.ACTION_DONE, requestOffset = 300_000))
+    if (habit.kind == HabitKind.SIMPLE) builder.addAction(0, "Done", actionIntent(context, habit.id, NotificationActionReceiver.ACTION_DONE, requestOffset = 300_000, day = day))
     openAppIntent(context, habit)?.let { (label, intent) -> builder.addAction(0, "Open $label", intent) }
     // Already on it: the reminders in between keep quiet for a while. Never offered on the last call.
     if (tone != Tone.LAST_CALL) builder.addAction(0, "On it", actionIntent(context, habit.id, NotificationActionReceiver.ACTION_ON_IT, requestOffset = 400_000))
@@ -268,11 +270,14 @@ object Notifications {
 
   private fun notificationId(habitId: Long) = habitId.toInt()
 
-  private fun actionIntent(context: Context, habitId: Long, action: String, requestOffset: Int): PendingIntent =
+  private fun actionIntent(context: Context, habitId: Long, action: String, requestOffset: Int, day: LocalDate? = null): PendingIntent =
     PendingIntent.getBroadcast(
       context,
       requestOffset + habitId.toInt(),
-      Intent(context, NotificationActionReceiver::class.java).setAction(action).putExtra(NotificationActionReceiver.EXTRA_HABIT_ID, habitId),
+      Intent(context, NotificationActionReceiver::class.java)
+        .setAction(action)
+        .putExtra(NotificationActionReceiver.EXTRA_HABIT_ID, habitId)
+        .apply { day?.let { putExtra(NotificationActionReceiver.EXTRA_DAY, it.toEpochDay()) } },
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 

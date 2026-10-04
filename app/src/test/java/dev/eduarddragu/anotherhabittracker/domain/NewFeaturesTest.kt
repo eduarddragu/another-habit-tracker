@@ -86,4 +86,19 @@ class NewFeaturesTest {
     val habit = RecapHabit("Meditation", HabitKind.SIMPLE, (1L..6L).map { LogRecord(sunday.minusDays(it), EntryType.SESSION, minutes = 5) }, 6)
     assertTrue(WeeklyRecap.build(listOf(habit), sunday) { null }.body.startsWith("Meditation: 6 of 6 days"))
   }
+
+  @Test
+  fun daysOffAndDaysBeforeTheHabitAreNotMissed() {
+    // Off Monday to Wednesday, then every day from Thursday.
+    val thursdayOn = (0L..3L).map { LogRecord(sunday.minusDays(it), EntryType.SESSION, minutes = 5) }
+    val off = (4L..6L).map { sunday.minusDays(it) }.toSet()
+    val habit = RecapHabit("Meditation", HabitKind.SIMPLE, thursdayOn, 4)
+    assertTrue(WeeklyRecap.build(listOf(habit), sunday, off) { null }.body.startsWith("Meditation: 4 of 4 days"))
+    // A session on a day off still counts.
+    val onADayOff = RecapHabit("Meditation", HabitKind.SIMPLE, thursdayOn + LogRecord(sunday.minusDays(5), EntryType.SESSION, minutes = 5), 4)
+    assertTrue(WeeklyRecap.build(listOf(onADayOff), sunday, off) { null }.body.startsWith("Meditation: 5 of 5 days"))
+    // First logged on Thursday: the days before weren't missed.
+    val new = RecapHabit("Meditation", HabitKind.SIMPLE, thursdayOn, 4, since = sunday.minusDays(3))
+    assertTrue(WeeklyRecap.build(listOf(new), sunday) { null }.body.startsWith("Meditation: 4 of 4 days"))
+  }
 }
