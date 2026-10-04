@@ -41,12 +41,20 @@ class GuardTracker(private val isGuarded: (String) -> Boolean, private val now: 
   val counting: Boolean
     get() = countingSince != null
 
+  /**
+   * The guard went up over [front]. Its own window is ignored, so [front] stays the guarded app: coming
+   * back to it (a notification from the shade, the quick switch) must be looked at again, not taken
+   * as the same app still in front.
+   */
+  private var blocked = false
+
   /** When the last window change arrived (event time), to tell late scroll events apart. */
   private var frontSince = Long.MIN_VALUE
 
-  /** A window change: [pkg] is in front now. The same app again changes nothing. */
+  /** A window change: [pkg] is in front now. The same app again changes nothing, unless it was blocked. */
   fun onFront(pkg: String, eventTime: Long = now()): List<GuardAction> {
-    if (pkg == front) return emptyList()
+    if (pkg == front && !blocked) return emptyList()
+    blocked = false
     val stopped = stop()
     front = pkg
     frontSince = eventTime
@@ -59,7 +67,7 @@ class GuardTracker(private val isGuarded: (String) -> Boolean, private val now: 
    * then Home), so one from before that change, or just after it, is ignored.
    */
   fun onScrolled(pkg: String, eventTime: Long): List<GuardAction> {
-    if (pkg == front || !isGuarded(pkg) || eventTime < frontSince + SCROLL_GRACE) return emptyList()
+    if ((pkg == front && !blocked) || !isGuarded(pkg) || eventTime < frontSince + SCROLL_GRACE) return emptyList()
     return onFront(pkg, eventTime)
   }
 
@@ -88,7 +96,11 @@ class GuardTracker(private val isGuarded: (String) -> Boolean, private val now: 
     if (generation != this.generation || counting) return emptyList()
     val pkg = front ?: return emptyList()
     if (!screenOn || !isGuarded(pkg) || !anyHabitOpen) return emptyList()
-    if (ScrollGuard.shouldBlock(anyHabitOpen, budget)) return listOf(GuardAction.Block(pkg))
+    if (ScrollGuard.shouldBlock(anyHabitOpen, budget)) {
+      blocked = true
+      return listOf(GuardAction.Block(pkg))
+    }
+    blocked = false
     countingSince = now()
     return listOf(GuardAction.Schedule(minOf(budget.remainingMillis, millisToMidnight + MIDNIGHT_MARGIN)))
   }

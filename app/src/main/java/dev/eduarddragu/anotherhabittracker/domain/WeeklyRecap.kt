@@ -5,7 +5,8 @@ import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 
 /** One habit's week, as the recap needs it. */
-data class RecapHabit(val name: String, val kind: HabitKind, val records: List<LogRecord>, val streak: Int)
+/** [since]: the habit's first day with anything logged; the days before it aren't missed ones. */
+data class RecapHabit(val name: String, val kind: HabitKind, val records: List<LogRecord>, val streak: Int, val since: LocalDate? = null)
 
 data class RecapText(val title: String, val body: String)
 
@@ -26,7 +27,8 @@ object WeeklyRecap {
 
   fun weekStart(today: LocalDate): LocalDate = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
 
-  fun build(habits: List<RecapHabit>, today: LocalDate, topicTitle: (String) -> String?): RecapText {
+  /** [paused]: days off (see TimeOff), which neither count nor are missed, unless something was done on one. */
+  fun build(habits: List<RecapHabit>, today: LocalDate, paused: Set<LocalDate> = emptySet(), topicTitle: (String) -> String?): RecapText {
     val start = weekStart(today)
     val daysSoFar = (today.toEpochDay() - start.toEpochDay() + 1).toInt()
     val lines = mutableListOf<String>()
@@ -37,7 +39,10 @@ object WeeklyRecap {
       val dayList = sessions.map { it.day }.toSet()
       val days = dayList.size
       // Today counts once it's done; until then (Sunday at 20:30) it's still open, not missed.
-      val possible = if (today in dayList) daysSoFar else daysSoFar - 1
+      val possible =
+        (0 until daysSoFar)
+          .map { start.plusDays(it.toLong()) }
+          .count { day -> day in dayList || (day != today && day !in paused && (habit.since == null || !day.isBefore(habit.since))) }
       val minutes = sessions.sumOf { it.minutes ?: 0 }
       doneDays += days
       possibleDays += possible

@@ -117,6 +117,12 @@ fun MainNavigation(
     onPendingHomeConsumed()
   }
 
+  // A double tap would push the same screen twice (the page underneath still takes taps during the
+  // slide), and after a save the form would come back empty.
+  fun show(key: NavKey) {
+    if (backStack.lastOrNull() != key) backStack.add(key)
+  }
+
   /** A message with Undo: the undo runs only if the action is tapped before the snackbar goes. */
   fun undoable(message: String, undo: () -> Unit) {
     scope.launch { if (snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed) undo() }
@@ -148,11 +154,11 @@ fun MainNavigation(
               notificationsEnabled = notificationsEnabled,
               deliveryProblems = deliveryProblems,
               onEnableNotifications = onEnableNotifications,
-              onOpen = { backStack.add(HabitDetail(it)) },
-              onBackup = { backStack.add(Backup) },
-              onGuard = { backStack.add(Guard) },
-              onTimeOff = { backStack.add(TimeOffKey) },
-              onLogSession = { habitId, minutes, day -> backStack.add(LogEntry(habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
+              onOpen = { show(HabitDetail(it)) },
+              onBackup = { show(Backup) },
+              onGuard = { show(Guard) },
+              onTimeOff = { show(TimeOffKey) },
+              onLogSession = { habitId, minutes, day -> show(LogEntry(habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
               modifier = screen,
             )
           }
@@ -160,13 +166,13 @@ fun MainNavigation(
             HabitDetailScreen(
               app = app,
               habitId = key.habitId,
-              onLog = { backStack.add(LogEntry(key.habitId)) },
-              onSettings = { backStack.add(HabitSettings(key.habitId)) },
-              onCurriculum = { backStack.add(CurriculumBrowser(key.habitId)) },
-              onEditEntry = { backStack.add(LogEntry(key.habitId, it)) },
-              onLogOnDay = { backStack.add(LogEntry(key.habitId, onDay = it.toEpochDay())) },
+              onLog = { show(LogEntry(key.habitId)) },
+              onSettings = { show(HabitSettings(key.habitId)) },
+              onCurriculum = { show(CurriculumBrowser(key.habitId)) },
+              onEditEntry = { show(LogEntry(key.habitId, it)) },
+              onLogOnDay = { show(LogEntry(key.habitId, onDay = it.toEpochDay())) },
               onSessionStarted = { while (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
-              onLogMinutes = { minutes, day -> backStack.add(LogEntry(key.habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
+              onLogMinutes = { minutes, day -> show(LogEntry(key.habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
               onUndoable = ::undoable,
               onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } },
               modifier = screen,

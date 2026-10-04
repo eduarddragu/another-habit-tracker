@@ -73,6 +73,7 @@ import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
 import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
 import dev.eduarddragu.anotherhabittracker.ui.components.cardOutline
+import dev.eduarddragu.anotherhabittracker.ui.components.launchSafely
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
 import dev.eduarddragu.anotherhabittracker.ui.components.rise
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
@@ -82,7 +83,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class HabitSettingsViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app, habitId) {
@@ -99,7 +99,7 @@ class HabitSettingsViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app,
 
   /** Posts a sample of each tone, so the wording and the sound can be checked without waiting. */
   fun preview(habit: Habit) =
-    viewModelScope.launch {
+    launchSafely {
       val status = app.repository.status(habit.id)
       val tone = listOf(Tone.OPENING, Tone.NUDGE, Tone.PUSH, Tone.LAST_CALL)[previewCount++ % 4]
       val topic = status?.pick?.topic

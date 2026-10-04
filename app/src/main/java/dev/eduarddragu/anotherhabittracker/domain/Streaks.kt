@@ -47,11 +47,12 @@ object Freezes {
   /**
    * Yesterday can still be frozen after the fact: it has nothing logged, this week's freeze (of
    * yesterday's week) is free, and the day before had something, so there is a streak to save.
+   * [bridges] are freezes plus days off: a day off carries the streak but doesn't use the week's freeze.
    */
-  fun canSaveYesterday(today: LocalDate, sessions: Set<LocalDate>, freezes: Set<LocalDate>): Boolean {
+  fun canSaveYesterday(today: LocalDate, sessions: Set<LocalDate>, freezes: Set<LocalDate>, bridges: Set<LocalDate> = freezes): Boolean {
     val yesterday = today.minusDays(1)
     val before = yesterday.minusDays(1)
-    return canFreeze(yesterday, sessions, freezes) && (before in sessions || before in freezes)
+    return canFreeze(yesterday, sessions, freezes) && (before in sessions || before in bridges)
   }
 
   /**

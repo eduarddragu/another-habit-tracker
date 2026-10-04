@@ -213,9 +213,12 @@ fun SessionHeader(session: FocusSession, now: Long, modifier: Modifier = Modifie
   }
 }
 
-/** Starts a session on a habit and today's topic, from Home or from the topic card. */
+/**
+ * Starts a session on a habit and today's topic, from Home or from the topic card. The day comes from
+ * the clock: just after midnight the shown status can still be yesterday's until the minute poll moves.
+ */
 fun startSession(app: HabitApp, status: HabitStatus, minutes: Int) =
-  Sessions.start(app, status.habit.id, status.habit.name, status.pick?.topic?.id, status.today, minutes)
+  Sessions.start(app, status.habit.id, status.habit.name, status.pick?.topic?.id, app.repository.today(), minutes)
 
 /** A session's length for [status]'s habit: one tap, no choosing. */
 fun suggestedMinutes(status: HabitStatus): Int = SessionTimer.defaultMinutes(status.habit.kind)

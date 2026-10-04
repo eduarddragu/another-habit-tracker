@@ -20,14 +20,14 @@ Every habit tracker I tried would happily count my days. None of them would tell
 
 ## Screens
 
-Light and dark, both native. The screenshots follow your GitHub theme: switch it to see the other half.
+Light and dark, both native. I'm biased toward the first, so that's what you get here.
 
 <p align="center">
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/home-dark.png"><img src="docs/assets/screenshots/home.png" width="150" alt="Home: greeting, planet and a card per habit with its streak"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/study-dark.png"><img src="docs/assets/screenshots/study.png" width="150" alt="The study habit: today's topic with its guiding questions"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/log-dark.png"><img src="docs/assets/screenshots/log.png" width="150" alt="Logging a session: score, minutes, notes"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/curriculum-dark.png"><img src="docs/assets/screenshots/curriculum.png" width="150" alt="The curriculum, area by area"></picture>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/guard-dark.png"><img src="docs/assets/screenshots/guard.png" width="150" alt="The scroll guard over Instagram"></picture>
+  <img src="docs/assets/screenshots/home.png" width="150" alt="Home: greeting, planet and a card per habit with its streak">
+  <img src="docs/assets/screenshots/study.png" width="150" alt="The study habit: today's topic with its guiding questions">
+  <img src="docs/assets/screenshots/log.png" width="150" alt="Logging a session: score, minutes, notes">
+  <img src="docs/assets/screenshots/curriculum.png" width="150" alt="The curriculum, area by area">
+  <img src="docs/assets/screenshots/guard.png" width="150" alt="The scroll guard over Instagram">
 </p>
 <p align="center"><sub>Home · Today's topic · How did it go? · Curriculum · Scroll guard</sub></p>
 

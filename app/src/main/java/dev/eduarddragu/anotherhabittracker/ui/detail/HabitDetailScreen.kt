@@ -60,7 +60,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.eduarddragu.anotherhabittracker.HabitApp
 import dev.eduarddragu.anotherhabittracker.R
@@ -114,13 +113,12 @@ import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlinx.coroutines.launch
 
 class HabitDetailViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app, habitId) {
   /** Marks a topic known and hands back what was newly marked, for the undo. */
   fun markKnown(topicId: String, onMarked: (Set<String>) -> Unit) = once { onMarked(app.repository.markKnown(habitId, listOf(topicId))) }
 
-  fun unmark(topicIds: Set<String>) = viewModelScope.launch { topicIds.forEach { app.repository.unmarkKnown(habitId, it) } }
+  fun unmark(topicIds: Set<String>) = app.repository.undoKnown(habitId, topicIds)
 
   /** Uses this week's freeze on yesterday, which was missed. */
   fun freezeYesterday(onDone: (Boolean) -> Unit) = once { onDone(app.repository.freeze(habitId, app.repository.today().minusDays(1))) }

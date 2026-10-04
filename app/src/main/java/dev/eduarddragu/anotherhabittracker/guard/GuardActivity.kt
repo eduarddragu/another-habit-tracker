@@ -82,7 +82,10 @@ class GuardActivity : ComponentActivity() {
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
-    counted = false
+    // The service asks again for the guard already up (at midnight, say): the same appearance, not a
+    // new attempt. Only another app counts again.
+    if (intent.getStringExtra(EXTRA_PACKAGE) != this.intent.getStringExtra(EXTRA_PACKAGE)) counted = false
+    setIntent(intent)
     load(intent)
   }
 

@@ -69,4 +69,28 @@ class TimeOffTest {
     assertNull("studied since", TimeOff.heldSince(periods, LocalDate.of(2026, 10, 12), setOf(LocalDate.of(2026, 10, 11))))
     assertNull("no time off", TimeOff.heldSince(emptyList(), today, emptySet()))
   }
+
+  @Test
+  fun aNewPeriodTakesOnlyItsOwnDaysFromOthers() {
+    fun day(d: Int, m: Int = 9) = LocalDate.of(2026, m, d)
+    val later = TimeOffPeriod(1, day(20), day(25))
+    assertEquals("an earlier period leaves a later one alone", listOf(later), TimeOff.outside(later, day(10), day(15)))
+    assertEquals("covered entirely", emptyList<TimeOffPeriod>(), TimeOff.outside(later, day(10), day(26)))
+    val long = TimeOffPeriod(1, day(1), day(25))
+    assertEquals("inside: split in two", listOf(TimeOffPeriod(1, day(1), day(9)), TimeOffPeriod(0, day(13), day(25))), TimeOff.outside(long, day(10), day(12)))
+    assertEquals("an open new one keeps the days before", listOf(TimeOffPeriod(1, day(1), day(9))), TimeOff.outside(long, day(10), null))
+    assertEquals("overlapping the start keeps the days after", listOf(TimeOffPeriod(1, day(16), day(25))), TimeOff.outside(TimeOffPeriod(1, day(12), day(25)), day(10), day(15)))
+    assertEquals("an open one stays open", listOf(TimeOffPeriod(1, day(4, 10), null)), TimeOff.outside(TimeOffPeriod(1, day(1, 10), null), day(10), day(3, 10)))
+  }
+
+  @Test
+  fun daysOffDontUseTheFreezeForYesterday() {
+    // Studied up to Sunday, off Monday and Tuesday, nothing on Wednesday; today is Thursday.
+    val records = (0L..3L).map { session(LocalDate.of(2026, 10, 4).minusDays(it)) }
+    val off = TimeOff.days(listOf(TimeOffPeriod(start = LocalDate.of(2026, 10, 5), end = LocalDate.of(2026, 10, 6))), today)
+    val summary = HabitSummaries.build(HabitKind.SIMPLE, records, today, off) { error("") }
+    assertTrue(summary.yesterdayEmpty)
+    assertTrue("the week's freeze is still free", summary.canFreezeYesterday)
+    assertTrue(Freezes.canFreeze(today.minusDays(1), records.map { it.day }.toSet(), emptySet()))
+  }
 }

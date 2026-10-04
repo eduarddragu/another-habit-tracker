@@ -46,6 +46,20 @@ class GuardTrackerTest {
   }
 
   @Test
+  fun comingBackToABlockedAppBlocksAgain() {
+    // Blocked, then back to Instagram from a notification in the shade: the guard's own window was
+    // ignored, so the tracker still had Instagram in front.
+    tracker.onEvaluated(tracker.onFront(ig).evaluation(), true, ScrollBudget(day), hour)
+    val again = tracker.onFront(ig).evaluation()
+    assertEquals(listOf(GuardAction.Block(ig)), tracker.onEvaluated(again, true, ScrollBudget(day), hour))
+    tracker.onScrolled(ig, eventTime = 10_000L).evaluation()
+    // Once a grant lets it count, the same app is the same app again.
+    tracker.onEvaluated(tracker.onGrant().evaluation(), true, ScrollBudget(day).grant(), hour)
+    assertTrue(tracker.onFront(ig).isEmpty())
+    assertTrue(tracker.counting)
+  }
+
+  @Test
   fun screenOffDuringAnEvaluationNeverStartsCounting() {
     val generation = tracker.onFront(ig).evaluation()
     tracker.onScreenOff()

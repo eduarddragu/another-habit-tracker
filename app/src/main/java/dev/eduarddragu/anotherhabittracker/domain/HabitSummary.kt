@@ -61,7 +61,7 @@ object HabitSummaries {
       pausedToday = today in pausedDays,
       canFreezeToday = Freezes.canFreeze(today, sessionDays, freezes),
       freezeUsedOn = Freezes.usedThisWeek(today, freezes),
-      canFreezeYesterday = today.minusDays(1) !in pausedDays && Freezes.canSaveYesterday(today, sessionDays, bridges),
+      canFreezeYesterday = today.minusDays(1) !in pausedDays && Freezes.canSaveYesterday(today, sessionDays, freezes, bridges),
       yesterdayEmpty = Freezes.yesterdayEmpty(today, sessionDays, bridges),
       stats = Stats.of(sessions.map { Session(it.day, it.score, it.minutes) }, bridges, today),
       cells = cells,

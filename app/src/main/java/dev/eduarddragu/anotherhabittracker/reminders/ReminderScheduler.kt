@@ -54,7 +54,7 @@ class ReminderScheduler(private val context: Context) {
    * reminders. Exact: an inexact alarm may fire up to an hour late.
    */
   fun scheduleMidnightRefresh(now: ZonedDateTime = ZonedDateTime.now()) {
-    val nextMidnight = now.toLocalDate().plusDays(1).atStartOfDay(now.zone).plusSeconds(30)
+    val nextMidnight = ReminderPlan.nextMidnight(now)
     val intent = Intent(context, MidnightReceiver::class.java).setAction(MidnightReceiver.ACTION_MIDNIGHT)
     val pending = PendingIntent.getBroadcast(context, MIDNIGHT_REQUEST, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     setAlarm(nextMidnight.toInstant().toEpochMilli(), pending)
