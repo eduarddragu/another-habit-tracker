@@ -5,6 +5,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -13,31 +14,52 @@ class RemindersTest {
 
   private fun at(date: String, time: String) = ZonedDateTime.of(LocalDate.parse(date), LocalTime.parse(time), rome)
 
+  private fun every(vararg times: String): (LocalDate) -> List<LocalTime> = { _ -> times.map(LocalTime::parse) }
+
   @Test
   fun laterTodayWhenTheSlotIsStillAhead() =
-    assertEquals(at("2026-10-10", "13:30"), ReminderPlan.nextTrigger(LocalTime.of(13, 30), at("2026-10-10", "09:00")))
+    assertEquals(at("2026-10-10", "13:30"), ReminderPlan.nextSlotTrigger(0, at("2026-10-10", "09:00"), every("13:30")))
 
   @Test
   fun tomorrowWhenTheSlotHasPassedOrIsNow() {
-    assertEquals(at("2026-10-11", "08:00"), ReminderPlan.nextTrigger(LocalTime.of(8, 0), at("2026-10-10", "08:00")))
-    assertEquals(at("2026-10-11", "08:00"), ReminderPlan.nextTrigger(LocalTime.of(8, 0), at("2026-10-10", "22:00")))
+    assertEquals(at("2026-10-11", "08:00"), ReminderPlan.nextSlotTrigger(0, at("2026-10-10", "08:00"), every("08:00")))
+    assertEquals(at("2026-10-11", "08:00"), ReminderPlan.nextSlotTrigger(0, at("2026-10-10", "22:00"), every("08:00")))
   }
 
   @Test
   fun keepsWallClockTimeAcrossDstChanges() {
-    // 2026-10-25: clocks go back in Rome; 2026-03-29: clocks go forward.
-    val autumn = ReminderPlan.nextTrigger(LocalTime.of(9, 30), at("2026-10-24", "22:00"))
-    assertEquals(LocalTime.of(9, 30), autumn.toLocalTime())
-    assertEquals("+01:00", autumn.offset.id)
-    val spring = ReminderPlan.nextTrigger(LocalTime.of(9, 30), at("2026-03-28", "22:00"))
-    assertEquals(LocalTime.of(9, 30), spring.toLocalTime())
-    assertEquals("+02:00", spring.offset.id)
+    // 2026-10-25: clocks go back in Rome; 2027-03-28: clocks go forward.
+    val autumn = ReminderPlan.nextSlotTrigger(0, at("2026-10-24", "22:00"), every("09:30"))!!
+    assertEquals(ZonedDateTime.parse("2026-10-25T09:30+01:00[Europe/Rome]"), autumn)
+    val spring = ReminderPlan.nextSlotTrigger(0, at("2027-03-27", "22:00"), every("09:30"))!!
+    assertEquals(ZonedDateTime.parse("2027-03-28T09:30+02:00[Europe/Rome]"), spring)
   }
 
   @Test
   fun slotInsideTheSpringGapMovesForward() {
-    val gap = ReminderPlan.nextTrigger(LocalTime.of(2, 30), at("2026-03-28", "22:00"))
-    assertEquals(LocalTime.of(3, 30), gap.toLocalTime())
+    val gap = ReminderPlan.nextSlotTrigger(0, at("2027-03-27", "22:00"), every("02:30"))!!
+    assertEquals(ZonedDateTime.parse("2027-03-28T03:30+02:00[Europe/Rome]"), gap)
+  }
+
+  @Test
+  fun slotInTheRepeatedHourFiresOnce() {
+    // 02:30 happens twice on 2026-10-25. Once the first one has passed, the next is tomorrow's.
+    val afterFirst = ZonedDateTime.parse("2026-10-25T02:31+02:00[Europe/Rome]")
+    assertEquals(ZonedDateTime.parse("2026-10-26T02:30+01:00[Europe/Rome]"), ReminderPlan.nextSlotTrigger(0, afterFirst, every("02:30")))
+  }
+
+  @Test
+  fun slotsSwitchListsBetweenWeekdaysAndWeekend() {
+    val weekdays = listOf(LocalTime.of(8, 0), LocalTime.of(21, 0))
+    val weekend = listOf(LocalTime.of(10, 0))
+    val timesFor = { day: LocalDate -> ReminderPlan.timesOn(day, weekdays, weekend) }
+    // Friday night to Saturday: slot 0 is the weekend's 10:00, slot 1 waits for Monday.
+    val friday = at("2026-10-09", "21:30")
+    assertEquals(at("2026-10-10", "10:00"), ReminderPlan.nextSlotTrigger(0, friday, timesFor))
+    assertEquals(at("2026-10-12", "21:00"), ReminderPlan.nextSlotTrigger(1, friday, timesFor))
+    // Sunday after its slot to Monday: back to the weekday list.
+    val sunday = at("2026-10-11", "11:00")
+    assertEquals(at("2026-10-12", "08:00"), ReminderPlan.nextSlotTrigger(0, sunday, timesFor))
   }
 
   @Test
@@ -93,5 +115,17 @@ class RemindersTest {
     // The refresh itself, firing at 00:00:30, schedules tomorrow's.
     assertEquals(at("2026-10-11", "00:00:30"), ReminderPlan.nextMidnight(at("2026-10-10", "00:00:30")))
     assertEquals(at("2026-10-11", "00:00:30"), ReminderPlan.nextMidnight(at("2026-10-10", "15:00")))
+  }
+
+  @Test
+  fun lateRemindersAreDropped() {
+    val slot = at("2026-10-10", "21:45")
+    assertFalse("on time", ReminderPlan.tooLate(slot, at("2026-10-10", "21:45:02")))
+    assertFalse("within the hour", ReminderPlan.tooLate(slot, at("2026-10-10", "22:44")))
+    assertTrue("more than an hour late", ReminderPlan.tooLate(at("2026-10-10", "13:30"), at("2026-10-10", "14:31")))
+    assertTrue("last night's, after midnight", ReminderPlan.tooLate(slot, at("2026-10-11", "00:05")))
+    assertFalse("no time carried", ReminderPlan.tooLate(null, at("2026-10-11", "00:05")))
+    // After a timezone change the day is the phone's current one: 00:10 in Rome is still the 10th in London.
+    assertFalse(ReminderPlan.tooLate(at("2026-10-10", "23:50"), at("2026-10-11", "00:10").withZoneSameInstant(ZoneId.of("Europe/London"))))
   }
 }

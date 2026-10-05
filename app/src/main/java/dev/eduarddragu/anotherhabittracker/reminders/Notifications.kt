@@ -109,8 +109,10 @@ object Notifications {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) setVibrationEffect(VibrationEffect.createWaveform(timings, amplitudes, -1))
   }
 
-  /** One notification per habit: each reminder replaces the previous one. */
-  /** [day]: the day the reminder is about, so "Done" tapped just after midnight still logs it. */
+  /**
+   * One notification per habit: each reminder replaces the previous one. [day]: the day the reminder
+   * is about, so "Done" tapped just after midnight still logs it.
+   */
   fun show(context: Context, habit: Habit, text: ReminderText, tone: Tone, day: LocalDate? = null) {
     val tapOpensPage = habit.kind == HabitKind.STUDY
     val manager = NotificationManagerCompat.from(context)
@@ -147,7 +149,7 @@ object Notifications {
    * The session while it runs or is paused: the topic, its questions to check the scope without
    * opening the app, and a countdown the system keeps by itself.
    */
-  fun showSession(context: Context, session: FocusSession, habitName: String, topic: Topic?, now: Long) {
+  fun showSession(context: Context, session: FocusSession, topic: Topic?, now: Long) {
     val manager = NotificationManagerCompat.from(context)
     if (!manager.areNotificationsEnabled()) return
     val paused = session.phase(now) == SessionPhase.PAUSED
@@ -158,14 +160,16 @@ object Notifications {
     val builder =
       NotificationCompat.Builder(context, CHANNEL_SESSION)
         .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle(if (paused) "Paused · ${topic?.title ?: habitName}" else topic?.title ?: habitName)
+        .setContentTitle(if (paused) "Paused · ${topic?.title ?: session.habitName}" else topic?.title ?: session.habitName)
         .setContentText(status)
         // A status bar chip with the time left (Android 16+ Live Updates), so the countdown is in view
         // without opening the shade.
         .setRequestPromotedOngoing(true)
-        .setShortCriticalText(if (paused) "Paused" else "${(session.remaining(now) + 59_999) / 60_000}m")
         .setStyle(NotificationCompat.BigTextStyle().bigText(listOfNotNull(status, questions).joinToString("\n\n")))
         .setOngoing(true)
+        // Swiped away anyway (ongoing doesn't stop that outside a foreground service): not brought
+        // back by a reboot or an update.
+        .setDeleteIntent(Sessions.action(context, SessionReceiver.ACTION_HIDE, 910_007))
         .setOnlyAlertOnce(true)
         .setSilent(true)
         .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
@@ -177,11 +181,17 @@ object Notifications {
         .addAction(0, "+5 min", Sessions.action(context, SessionReceiver.ACTION_EXTEND, 910_001))
         .addAction(0, if (paused) "Resume" else "Pause", Sessions.action(context, if (paused) SessionReceiver.ACTION_RESUME else SessionReceiver.ACTION_PAUSE, 910_002))
         .addAction(0, "End", Sessions.action(context, SessionReceiver.ACTION_END, 910_003))
+    // The chip shows short critical text over the chronometer, and text set here is never updated:
+    // while running the chip is left to the countdown, which the system keeps by itself.
+    if (paused) builder.setShortCriticalText("Paused")
     post(manager, builder)
   }
 
-  /** Time's up (or ended): a chime, and a way straight to the log form with the minutes filled in. */
-  fun showSessionEnd(context: Context, session: FocusSession, topic: Topic?, now: Long) {
+  /**
+   * Time's up (or ended): a chime, and a way straight to the log form with the minutes filled in.
+   * [silent]: no chime or vibration (ended by the midnight refresh, while he's likely asleep).
+   */
+  fun showSessionEnd(context: Context, session: FocusSession, topic: Topic?, now: Long, silent: Boolean = false) {
     val manager = NotificationManagerCompat.from(context)
     if (!manager.areNotificationsEnabled()) return
     val minutes = session.minutesToLog(now)
@@ -200,6 +210,7 @@ object Notifications {
         .setContentIntent(PendingIntent.getActivity(context, 910_004, log, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
         .setAutoCancel(true)
         .setCategory(NotificationCompat.CATEGORY_ALARM)
+        .setSilent(silent)
     if (minutes != null) builder.addAction(0, "Log", PendingIntent.getActivity(context, 910_005, log, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
     builder.addAction(0, "+5 min", Sessions.action(context, SessionReceiver.ACTION_EXTEND, 910_006))
     post(manager, builder)

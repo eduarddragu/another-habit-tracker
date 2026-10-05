@@ -1,5 +1,6 @@
 package dev.eduarddragu.anotherhabittracker.ui.components
 
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -21,16 +22,38 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.HorizontalAlignmentLine
+import androidx.compose.ui.layout.IntrinsicMeasurable
+import androidx.compose.ui.layout.IntrinsicMeasureScope
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.layout.VerticalAlignmentLine
+import androidx.compose.ui.node.LayoutModifierNode
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.eduarddragu.anotherhabittracker.R
 import dev.eduarddragu.anotherhabittracker.theme.Motion
+import kotlin.math.max
+import kotlin.math.min
 
 /** The heading of a section on every screen: mono capitals in the accent. */
 @Composable
@@ -88,8 +111,9 @@ fun Chevron(open: Boolean, modifier: Modifier = Modifier, size: Dp = 20.dp) {
 /**
  * A text action at the edge of a row or on its own line: accent text with no button box, so it sits
  * exactly on the gutter (a TextButton centres short labels in a 58dp minimum width) and doesn't make
- * its line taller than the text beside it. [vertical] padding keeps a usable touch height. [color] is
- * the accent; a way out that shouldn't invite a tap can be muted.
+ * its line taller than the text beside it. [vertical] padding is part of its layout; the touch area
+ * grows to 48dp either way without moving anything (see [touchTarget]). [color] is the accent; a way
+ * out that shouldn't invite a tap can be muted.
  */
 @Composable
 fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, vertical: Dp = 12.dp, color: Color = MaterialTheme.colorScheme.primary) {
@@ -97,6 +121,130 @@ fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
     text,
     style = MaterialTheme.typography.labelLarge,
     color = if (enabled) color else color.copy(alpha = 0.38f),
-    modifier = modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(vertical = vertical),
+    modifier = modifier.touchTarget(Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick)).padding(vertical = vertical),
   )
+}
+
+/**
+ * Applies [clickable] (a click, a selection) on an area at least [size] each way, while the layout
+ * keeps the content's own size: baselines, flush edges and line heights stay where they were, and the
+ * extra area overlaps the neighbours. Unlike Compose's own touch slop, the grown area wins over a
+ * clickable parent (a tap just beside "Keep going today" doesn't open the row). Intrinsic sizes are the
+ * content's, so rows measured by intrinsics don't grow either.
+ */
+fun Modifier.touchTarget(clickable: Modifier, size: Dp = 48.dp): Modifier = this then TouchArea(size, grow = false) then clickable then TouchArea(size, grow = true)
+
+// Where the content sits inside the grown area: the inner half reports it, the outer half reads it
+// (alignment lines travel with each measurement, so nothing is shared between passes).
+private val ContentLeft = VerticalAlignmentLine(::min)
+private val ContentRight = VerticalAlignmentLine(::max)
+private val ContentTop = HorizontalAlignmentLine(::min)
+private val ContentBottom = HorizontalAlignmentLine(::max)
+
+private data class TouchArea(val size: Dp, val grow: Boolean) : ModifierNodeElement<TouchAreaNode>() {
+  override fun create() = TouchAreaNode(size, grow)
+
+  override fun update(node: TouchAreaNode) {
+    node.size = size
+    node.grow = grow
+  }
+}
+
+/**
+ * [grow]: the inner half, which centres the content in at least [size] each way. Otherwise the outer
+ * half, which lays out only the content's bounds and lets the rest overlap.
+ */
+private class TouchAreaNode(var size: Dp, var grow: Boolean) : Modifier.Node(), LayoutModifierNode {
+  override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
+    val target = size.roundToPx()
+    // Room for the inner half to grow past the outer half's constraints.
+    val slack = 2 * target
+    if (grow) {
+      // The outer half's own constraints again: the content measures as if nothing were around it.
+      val own =
+        Constraints(
+          minWidth = constraints.minWidth,
+          maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth - slack else Constraints.Infinity,
+          minHeight = constraints.minHeight,
+          maxHeight = if (constraints.hasBoundedHeight) constraints.maxHeight - slack else Constraints.Infinity,
+        )
+      val content = measurable.measure(own)
+      val width = maxOf(content.width, target)
+      val height = maxOf(content.height, target)
+      val x = (width - content.width) / 2
+      val y = (height - content.height) / 2
+      val lines = mapOf(ContentLeft to x, ContentRight to x + content.width, ContentTop to y, ContentBottom to y + content.height)
+      return layout(width, height, lines) { content.place(x, y) }
+    }
+    val loose =
+      constraints.copy(
+        maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth + slack else Constraints.Infinity,
+        maxHeight = if (constraints.hasBoundedHeight) constraints.maxHeight + slack else Constraints.Infinity,
+      )
+    val grown = measurable.measure(loose)
+    val left = grown[ContentLeft]
+    val top = grown[ContentTop]
+    if (left == AlignmentLine.Unspecified || top == AlignmentLine.Unspecified) return layout(grown.width, grown.height) { grown.place(0, 0) }
+    return layout(grown[ContentRight] - left, grown[ContentBottom] - top) { grown.place(-left, -top) }
+  }
+
+  override fun IntrinsicMeasureScope.minIntrinsicWidth(measurable: IntrinsicMeasurable, height: Int) = measurable.minIntrinsicWidth(height)
+
+  override fun IntrinsicMeasureScope.maxIntrinsicWidth(measurable: IntrinsicMeasurable, height: Int) = measurable.maxIntrinsicWidth(height)
+
+  override fun IntrinsicMeasureScope.minIntrinsicHeight(measurable: IntrinsicMeasurable, width: Int) = measurable.minIntrinsicHeight(width)
+
+  override fun IntrinsicMeasureScope.maxIntrinsicHeight(measurable: IntrinsicMeasurable, width: Int) = measurable.maxIntrinsicHeight(width)
+}
+
+/**
+ * A card's mono label: muted parts joined by " · ", with only [state] (done, new, a review, now) in
+ * the accent. The parts are given in place, so a habit named like a state word stays muted.
+ */
+@Composable
+fun CardLabel(lead: List<String> = emptyList(), state: String? = null, trail: List<String> = emptyList(), modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
+  val colors = MaterialTheme.colorScheme
+  Text(
+    buildAnnotatedString {
+      var first = true
+      fun separate() {
+        if (!first) append(" · ")
+        first = false
+      }
+      lead.forEach {
+        separate()
+        append(it)
+      }
+      if (state != null) {
+        separate()
+        withStyle(SpanStyle(color = colors.primary)) { append(state) }
+      }
+      trail.forEach {
+        separate()
+        append(it)
+      }
+    },
+    style = MaterialTheme.typography.labelMedium,
+    color = colors.onSurfaceVariant,
+    maxLines = maxLines,
+    overflow = TextOverflow.Ellipsis,
+    modifier = modifier,
+  )
+}
+
+/**
+ * Whether a screen reader is exploring by touch (TalkBack): what would hide itself after a few
+ * seconds has to stay until it's used. Follows the setting while the screen is up.
+ */
+@Composable
+fun rememberTouchExploration(): Boolean {
+  val context = LocalContext.current
+  val manager = remember { context.getSystemService(AccessibilityManager::class.java) }
+  var enabled by remember { mutableStateOf(manager?.isTouchExplorationEnabled == true) }
+  DisposableEffect(manager) {
+    val listener = AccessibilityManager.TouchExplorationStateChangeListener { enabled = it }
+    manager?.addTouchExplorationStateChangeListener(listener)
+    onDispose { manager?.removeTouchExplorationStateChangeListener(listener) }
+  }
+  return enabled
 }

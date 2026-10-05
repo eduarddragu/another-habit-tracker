@@ -24,15 +24,6 @@ object ReminderPlan {
   fun quieted(tone: Tone, nowMillis: Long, quietUntil: Long?): Boolean = tone != Tone.LAST_CALL && quietUntil != null && nowMillis < quietUntil
 
   /**
-   * The next time [slot] fires strictly after [now]. Uses the zone's rules, so a slot that falls in a
-   * spring-forward gap moves to the first valid instant instead of being skipped.
-   */
-  fun nextTrigger(slot: LocalTime, now: ZonedDateTime): ZonedDateTime {
-    val today = ZonedDateTime.of(now.toLocalDate(), slot, now.zone)
-    return if (today.isAfter(now)) today else ZonedDateTime.of(now.toLocalDate().plusDays(1), slot, now.zone)
-  }
-
-  /**
    * The next midnight refresh, 30 s into a day, strictly after [now]. A process that starts in the
    * first 30 s of a day gets today's: tomorrow's would replace the alarm still due and skip a rollover.
    */
@@ -74,6 +65,21 @@ object ReminderPlan {
     return null
   }
 
+  /** How late a reminder may still go out: past this it's about a moment that has gone. */
+  const val MAX_LATE_MILLIS = 60 * 60 * 1000L
+
+  /**
+   * Whether the alarm meant for [scheduledAt] fires too late to remind: on another day than it was
+   * meant for (a slot of last night delivered after midnight would nag about the new day), or more
+   * than [MAX_LATE_MILLIS] after its time (a phone that slept through it). The slot is rescheduled
+   * either way. Null (an alarm set before the time was carried) is never late.
+   */
+  fun tooLate(scheduledAt: ZonedDateTime?, now: ZonedDateTime): Boolean {
+    if (scheduledAt == null) return false
+    val at = scheduledAt.withZoneSameInstant(now.zone)
+    return at.toLocalDate() != now.toLocalDate() || java.time.Duration.between(at, now).toMillis() > MAX_LATE_MILLIS
+  }
+
   /**
    * The latest slot of today that has already passed, if any. Used to catch up once when alarms were
    * lost (phone off or rebooting at reminder time, clock changed).
@@ -91,6 +97,8 @@ object ReminderMessages {
       "The laptop is right there. So is the notebook. Only %s is missing.",
       "Friendly reminder (for now): %s.",
       "Half an hour. One. %s. Go.",
+      "Bruh. Keep thirty minutes of tonight for %s.",
+      "Work's done. Before the evening fills up: %s.",
     )
   private val studyPushes =
     listOf(
@@ -105,7 +113,7 @@ object ReminderMessages {
     )
   private val simplePushes =
     listOf(
-      "Still no %s today. Ten minutes is enough.",
+      "Still no %s today. A few minutes still count.",
       "The day is getting away. %s first.",
     )
   private val lastCallStreak =

@@ -84,13 +84,9 @@ class TopicPickerTest {
   fun nothingLeftToPick() = assertNull(TopicPicker.pick(curriculum(topic("x")), listOf(TopicMark("x", day, 5, known = true)), day))
 
   @Test
-  fun restrictedPickFollowsPrerequisitesThenStops() {
+  fun withPrerequisitesFollowsTheGraph() {
     val c = curriculum(topic("base"), topic("mid", "a", "base"), topic("target", "a", "mid"), topic("other"))
-    val scope = c.withPrerequisites(listOf("target"))
-    assertEquals(setOf("base", "mid", "target"), scope)
-    assertEquals("base", TopicPicker.pick(c, emptyList(), day, scope)!!.topic.id)
-    val all = listOf(mark("base", 4, 3), mark("mid", 4, 2), mark("target", 4, 1))
-    assertNull(TopicPicker.pick(c, all, day, scope))
+    assertEquals(setOf("base", "mid", "target"), c.withPrerequisites(listOf("target")))
   }
 
   @Test

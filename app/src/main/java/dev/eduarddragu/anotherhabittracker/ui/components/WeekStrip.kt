@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -30,11 +31,14 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.eduarddragu.anotherhabittracker.domain.Cell
+import dev.eduarddragu.anotherhabittracker.domain.Descriptions
 import dev.eduarddragu.anotherhabittracker.domain.Heatmap
 import dev.eduarddragu.anotherhabittracker.theme.Motion
 import java.time.LocalDate
@@ -60,12 +64,16 @@ fun WeekStrip(
   initials: Boolean = false,
   commit: CommitPlayback? = null,
   pulse: () -> Float = { 0f },
+  /** Days off among the dashed days, so a screen reader can tell them from freezes. */
+  daysOff: Set<LocalDate> = emptySet(),
 ) {
   val colors = MaterialTheme.colorScheme
   val accent = colors.primary
   val muted = colors.onSurfaceVariant
   val days = Heatmap.weeks(today, 1).first()
-  Column(modifier) {
+  // Drawn, so it says itself in one sentence; the initials under it are part of the picture.
+  val description = remember(cells, daysOff, today) { Descriptions.week(cells, daysOff, today) }
+  Column(modifier.clearAndSetSemantics { contentDescription = description }) {
     Canvas(Modifier.width(cellSize * 7 + gap * 6).height(cellSize)) {
       val size = cellSize.toPx()
       val step = size + gap.toPx()
@@ -132,7 +140,8 @@ private fun DrawScope.drawOpen(isToday: Boolean, topLeft: Offset, size: Float, r
 @Composable
 fun RollingNumber(value: Int, style: TextStyle, color: Color, modifier: Modifier = Modifier) {
   val digits = value.toString()
-  Row(modifier.opticalStart(digits, style)) {
+  // One value to a screen reader ("12"), not one digit per box ("1, 2").
+  Row(modifier.opticalStart(digits, style).clearAndSetSemantics { contentDescription = digits }) {
     digits.forEachIndexed { index, digit ->
       val fromRight = digits.length - index
       key(fromRight) {

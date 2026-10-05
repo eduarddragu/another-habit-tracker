@@ -63,7 +63,15 @@ class TimeOffViewModel(private val app: HabitApp) : ViewModel() {
   /** Back today: the last day off was yesterday (a period that started today simply goes away). */
   fun end(period: TimeOffPeriod) = launchSafely { app.repository.endTimeOff(period.id, today().minusDays(1)) }
 
-  fun remove(period: TimeOffPeriod) = launchSafely { app.repository.deleteTimeOff(period.id) }
+  /** [onDone] runs once it's gone, for the undo. */
+  fun remove(period: TimeOffPeriod, onDone: () -> Unit) =
+    launchSafely {
+      app.repository.deleteTimeOff(period.id)
+      onDone()
+    }
+
+  /** Undo of [remove]: in the app's scope, since the snackbar can outlive this screen. */
+  fun restore(period: TimeOffPeriod) = app.repository.restoreTimeOff(period)
 }
 
 private val DAY = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
@@ -77,7 +85,13 @@ private fun LocalDate.label(): String = format(DAY)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TimeOffScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: TimeOffViewModel = viewModel { TimeOffViewModel(app) }) {
+fun TimeOffScreen(
+  app: HabitApp,
+  /** Shows a message with an Undo action. */
+  onUndoable: (String, () -> Unit) -> Unit,
+  modifier: Modifier = Modifier,
+  viewModel: TimeOffViewModel = viewModel { TimeOffViewModel(app) },
+) {
   val periods by viewModel.periods.collectAsStateWithLifecycle()
   val all = periods ?: return
   val today = viewModel.today()
@@ -137,7 +151,7 @@ fun TimeOffScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: TimeO
               style = MaterialTheme.typography.bodyLarge,
               modifier = Modifier.weight(1f),
             )
-            TextAction("Remove", onClick = { viewModel.remove(period) })
+            TextAction("Remove", onClick = { viewModel.remove(period) { onUndoable("Time off removed") { viewModel.restore(period) } } })
           }
         }
       }

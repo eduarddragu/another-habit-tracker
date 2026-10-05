@@ -94,13 +94,6 @@ class HabitSummaryTest {
   }
 
   @Test
-  fun longestStreakCanStartWithAFreeze() {
-    val freezes = setOf(today.minusDays(3))
-    val sessions = setOf(today.minusDays(2), today.minusDays(1), today)
-    assertEquals(3, Streaks.longest(sessions, freezes))
-  }
-
-  @Test
   fun aSessionOnAFrozenDayWinsAndFreesTheWeek() {
     val today = LocalDate.of(2026, 10, 1)
     val yesterday = today.minusDays(1)
@@ -112,6 +105,6 @@ class HabitSummaryTest {
       )
     val summary = HabitSummaries.build(HabitKind.SIMPLE, records, today) { error("not study") }
     assertEquals(2, summary.stats.streak)
-    assertEquals(null, summary.freezeUsedOn)
+    assertTrue("the ignored freeze leaves the week's free", summary.canFreezeToday)
   }
 }

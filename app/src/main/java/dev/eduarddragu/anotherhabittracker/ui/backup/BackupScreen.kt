@@ -20,6 +20,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -123,6 +129,7 @@ fun BackupScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: Backup
   val busy by viewModel.busy.collectAsStateWithLifecycle()
   val message by viewModel.message.collectAsStateWithLifecycle()
   val pending by viewModel.pending.collectAsStateWithLifecycle()
+  var confirmingStop by rememberSaveable { mutableStateOf(false) }
   val colors = MaterialTheme.colorScheme
 
   val chooseNightly = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> uri?.let(viewModel::chooseNightly) }
@@ -157,7 +164,7 @@ fun BackupScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: Backup
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
           Button(shape = MaterialTheme.shapes.medium, onClick = viewModel::saveNow, enabled = !busy) { Text("Save now") }
-          OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = viewModel::stopNightly, enabled = !busy, border = cardOutline()) { Text("Stop") }
+          OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { confirmingStop = true }, enabled = !busy, border = cardOutline()) { Text("Stop") }
         }
       }
     }
@@ -175,8 +182,30 @@ fun BackupScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: Backup
       )
     }
 
-    // Good news in the quiet color; only a problem is in the accent.
-    message?.let { (text, isError) -> Text(text, style = MaterialTheme.typography.bodyMedium, color = if (isError) colors.primary else colors.onSurfaceVariant) }
+    // Good news in the quiet color; only a problem is in the accent. Announced when it appears: the
+    // outcome comes back after the file picker, with the focus somewhere else.
+    message?.let { (text, isError) ->
+      Text(text, style = MaterialTheme.typography.bodyMedium, color = if (isError) colors.primary else colors.onSurfaceVariant, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+    }
+  }
+
+  if (confirmingStop) {
+    AlertDialog(
+      onDismissRequest = { confirmingStop = false },
+      title = { Text("Stop the nightly backup?") },
+      text = { Text("The file stays where it is, but it won't be updated any more.") },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            confirmingStop = false
+            viewModel.stopNightly()
+          }
+        ) {
+          Text("Stop")
+        }
+      },
+      dismissButton = { TextButton(onClick = { confirmingStop = false }) { Text("Cancel") } },
+    )
   }
 
   pending?.let { file ->

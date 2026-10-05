@@ -15,6 +15,11 @@ enum class EntryType {
   FREEZE,
   /** A study topic marked as already known: unlocks its dependents, never reviewed, no streak credit. */
   KNOWN,
+  /**
+   * A book finished on its day (reading habits, see Books): track and module carry the book. Like
+   * KNOWN, a mark: no session, no streak credit, no minutes.
+   */
+  FINISHED,
 }
 
 private val TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm")

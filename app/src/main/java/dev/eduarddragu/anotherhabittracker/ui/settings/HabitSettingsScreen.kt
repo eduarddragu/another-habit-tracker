@@ -4,7 +4,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,10 +18,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -49,6 +51,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -59,6 +64,7 @@ import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
 import dev.eduarddragu.anotherhabittracker.domain.HabitIcon
 import dev.eduarddragu.anotherhabittracker.domain.ReminderMessages
 import dev.eduarddragu.anotherhabittracker.domain.ReminderPlan
+import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
 import dev.eduarddragu.anotherhabittracker.domain.Tone
 import dev.eduarddragu.anotherhabittracker.domain.formatReminderTimes
 import dev.eduarddragu.anotherhabittracker.domain.formatTime
@@ -125,7 +131,8 @@ data class LaunchableApp(val label: String, val packageName: String)
 fun HabitSettingsScreen(
   app: HabitApp,
   habitId: Long,
-  onDone: (message: String) -> Unit,
+  /** Closes the page, with a message for the snackbar (null: closed without saving). */
+  onDone: (message: String?) -> Unit,
   modifier: Modifier = Modifier,
   viewModel: HabitSettingsViewModel = viewModel(key = "settings-$habitId") { HabitSettingsViewModel(app, habitId) },
 ) {
@@ -140,9 +147,15 @@ fun HabitSettingsScreen(
   var weekendTimes by rememberSaveable(habit.id) { mutableStateOf(habit.weekendReminderTimes) }
   var linkedPackage by rememberSaveable(habit.id) { mutableStateOf(habit.linkedPackage) }
   var icon by rememberSaveable(habit.id) { mutableStateOf(habit.resolvedIcon) }
+  var sessionMinutes by rememberSaveable(habit.id) { mutableStateOf(SessionTimer.defaultMinutes(habit.kind, habit.sessionMinutes)) }
   // Which list a new time goes to: weekdays or the weekend.
   var pickingFor by rememberSaveable { mutableStateOf<String?>(null) }
   var pickingApp by rememberSaveable { mutableStateOf(false) }
+  var confirmingBack by rememberSaveable { mutableStateOf(false) }
+
+  // Back with something changed and not saved asks first: a reminder list takes a while to set up.
+  val changed = name.trim() != habit.name || times != habit.reminderTimes || weekendTimes != habit.weekendReminderTimes || linkedPackage != habit.linkedPackage || icon != habit.resolvedIcon || sessionMinutes != SessionTimer.defaultMinutes(habit.kind, habit.sessionMinutes)
+  BackHandler(enabled = changed && !busy) { confirmingBack = true }
 
   val linkedLabel = linkedPackage?.let { pkg -> apps.firstOrNull { it.packageName == pkg }?.label ?: "$pkg (not installed)" } ?: "None"
 
@@ -177,6 +190,21 @@ fun HabitSettingsScreen(
         }
       }
 
+      // One tap on the planet or the card starts a session this long; the log form's presets follow it.
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel("Session length")
+        FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          (SessionTimer.LENGTHS + sessionMinutes).distinct().sorted().forEach { length ->
+            FilterChip(
+              selected = sessionMinutes == length,
+              onClick = { sessionMinutes = length },
+              label = { Text("$length min") },
+              modifier = Modifier.semantics { role = Role.RadioButton },
+            )
+          }
+        }
+      }
+
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel("Opens from the reminder")
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -190,7 +218,7 @@ fun HabitSettingsScreen(
         shape = MaterialTheme.shapes.medium,
         enabled = name.isNotBlank() && !busy,
         modifier = Modifier.fillMaxWidth(),
-        onClick = { viewModel.save(habit.copy(name = name.trim(), reminderTimes = times, weekendReminderTimes = weekendTimes, linkedPackage = linkedPackage, icon = icon.name)) { onDone("Saved") } },
+        onClick = { viewModel.save(habit.copy(name = name.trim(), reminderTimes = times, weekendReminderTimes = weekendTimes, linkedPackage = linkedPackage, icon = icon.name, sessionMinutes = sessionMinutes.takeIf { it != SessionTimer.defaultMinutes(habit.kind) })) { onDone("Saved") } },
       ) {
         Text("Save")
       }
@@ -205,6 +233,24 @@ fun HabitSettingsScreen(
         else times = formatReminderTimes(parseReminderTimes(times) + it)
         pickingFor = null
       },
+    )
+  }
+  if (confirmingBack) {
+    AlertDialog(
+      onDismissRequest = { confirmingBack = false },
+      title = { Text("Discard changes?") },
+      text = { Text("The changes to this habit aren't saved.") },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            confirmingBack = false
+            onDone(null)
+          }
+        ) {
+          Text("Discard")
+        }
+      },
+      dismissButton = { TextButton(onClick = { confirmingBack = false }) { Text("Keep editing") } },
     )
   }
   if (pickingApp) {
@@ -255,7 +301,7 @@ private fun ReminderList(label: String, times: String, onChange: (String) -> Uni
 private fun IconPicker(selected: HabitIcon, onPick: (HabitIcon) -> Unit) {
   val haptics = LocalHapticFeedback.current
   val colors = MaterialTheme.colorScheme
-  FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+  FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     HabitIcon.entries.forEach { icon ->
       val chosen = icon == selected
       // Fill and outline change together, both drawn at draw time.
@@ -273,7 +319,8 @@ private fun IconPicker(selected: HabitIcon, onPick: (HabitIcon) -> Unit) {
           .selectable(chosen, role = Role.RadioButton) {
             haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
             onPick(icon)
-          },
+          }
+          .semantics { contentDescription = icon.label },
         contentAlignment = Alignment.Center,
       ) {
         val tint by animateColorAsState(if (chosen) colors.primary else colors.onSurfaceVariant, tween(Motion.SHORT, easing = Motion.EaseUi), label = "icon tint")
@@ -311,7 +358,7 @@ private fun AppDialog(apps: List<LaunchableApp>, selected: String?, onDismiss: (
     confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     title = { Text("Open from the reminder") },
     text = {
-      LazyColumn(Modifier.heightIn(max = 420.dp)) {
+      LazyColumn(Modifier.heightIn(max = 420.dp).selectableGroup()) {
         item { AppRow("None", selected == null) { onPick(null) } }
         items(apps, key = { it.packageName }) { app -> AppRow(app.label, selected == app.packageName) { onPick(app.packageName) } }
       }
@@ -319,10 +366,12 @@ private fun AppDialog(apps: List<LaunchableApp>, selected: String?, onDismiss: (
   )
 }
 
+/** One choice: the whole row is the radio button (one focus stop), like the guard's app list. */
 @Composable
 private fun AppRow(label: String, selected: Boolean, onClick: () -> Unit) {
-  Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-    RadioButton(selected = selected, onClick = onClick)
+  Row(Modifier.fillMaxWidth().selectable(selected = selected, role = Role.RadioButton, onClick = onClick).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    // Without its own click the radio is 20dp: padded back to the 48dp it took before.
+    RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(14.dp))
     Text(label)
   }
 }

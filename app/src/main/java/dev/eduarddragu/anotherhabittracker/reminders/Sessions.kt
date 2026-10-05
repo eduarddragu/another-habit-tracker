@@ -29,11 +29,33 @@ object Sessions {
 
   fun end(app: HabitApp) = change(app) { it.finish(app.sessions.now()) }
 
-  /** Re-arms the end alarm and re-posts the countdown (after a reboot or an update, which drop both). */
-  fun refresh(app: HabitApp) = change(app) { it }
+  /**
+   * Ended by the midnight refresh (a session from an earlier day, paused or past its end): the end
+   * notification still offers to log it, but without a chime in the middle of the night.
+   */
+  fun endQuietly(app: HabitApp) = apply(app, quiet = true) { current -> current?.finish(app.sessions.now()) }
+
+  /**
+   * Re-arms the end alarm and re-posts the countdown (after a reboot or an update, which drop both),
+   * unless it was swiped away.
+   */
+  fun refresh(app: HabitApp) = apply(app, keepHidden = true) { it }
+
+  /** The countdown was swiped away: it stays away until the session changes by hand. */
+  @Synchronized
+  fun hide(app: HabitApp) = app.sessions.hide()
 
   /** Gone without a log (discarded, or logged: the log is the record). */
   fun clear(app: HabitApp) = apply(app) { null }
+
+  /**
+   * Undo of a discard: [session] comes back as it was, with its notification but without a second
+   * chime. Only while nothing else has started meanwhile.
+   */
+  @Synchronized
+  fun restore(app: HabitApp, session: FocusSession) {
+    if (app.sessions.session.value == null) apply(app, quiet = true) { session }
+  }
 
   private fun change(app: HabitApp, transform: (FocusSession) -> FocusSession) = apply(app) { current -> current?.let(transform) }
 
@@ -45,11 +67,13 @@ object Sessions {
 
   // One change at a time: the UI and the notification buttons run on the main thread, but receivers
   // (reboot, midnight) run in the background, and two finishes at once would chime twice.
+  // [keepHidden]: not a change made by hand, so a countdown swiped away stays away.
   @Synchronized
-  private fun apply(app: HabitApp, transform: (FocusSession?) -> FocusSession?) {
+  private fun apply(app: HabitApp, keepHidden: Boolean = false, quiet: Boolean = false, transform: (FocusSession?) -> FocusSession?) {
     val before = app.sessions.session.value
     val after = transform(before)
-    app.sessions.set(after)
+    val hidden = keepHidden && app.sessions.hidden
+    app.sessions.set(after, hidden)
     val now = app.sessions.now()
     cancelAlarm(app)
     if (after == null) {
@@ -60,15 +84,15 @@ object Sessions {
     when (after.phase(now)) {
       SessionPhase.RUNNING -> {
         armAlarm(app, after.endsAt(now))
-        Notifications.showSession(app, after, after.habitName, topic, now)
+        if (!hidden) Notifications.showSession(app, after, topic, now)
       }
-      SessionPhase.PAUSED -> Notifications.showSession(app, after, after.habitName, topic, now)
+      SessionPhase.PAUSED -> if (!hidden) Notifications.showSession(app, after, topic, now)
       // The chime only once, when it goes from counting to over. The countdown goes first, so it
       // never lingers (its buttons would act on a session that's over) if the end can't be posted.
       SessionPhase.FINISHED ->
         if (before?.finishedAt == null) {
           Notifications.dismissSession(app)
-          Notifications.showSessionEnd(app, after, topic, now)
+          Notifications.showSessionEnd(app, after, topic, now, silent = quiet)
         }
     }
   }
@@ -99,6 +123,7 @@ class SessionReceiver : BroadcastReceiver() {
       ACTION_PAUSE -> Sessions.pause(app)
       ACTION_RESUME -> Sessions.resume(app)
       ACTION_EXTEND -> Sessions.extend(app)
+      ACTION_HIDE -> Sessions.hide(app)
     }
   }
 
@@ -107,5 +132,7 @@ class SessionReceiver : BroadcastReceiver() {
     const val ACTION_PAUSE = "dev.eduarddragu.anotherhabittracker.SESSION_PAUSE"
     const val ACTION_RESUME = "dev.eduarddragu.anotherhabittracker.SESSION_RESUME"
     const val ACTION_EXTEND = "dev.eduarddragu.anotherhabittracker.SESSION_EXTEND"
+    /** The countdown swiped away (its delete intent). */
+    const val ACTION_HIDE = "dev.eduarddragu.anotherhabittracker.SESSION_HIDE"
   }
 }

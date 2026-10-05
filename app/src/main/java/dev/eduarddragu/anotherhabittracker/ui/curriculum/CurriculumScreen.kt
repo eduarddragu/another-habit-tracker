@@ -24,6 +24,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
@@ -148,7 +150,12 @@ fun CurriculumScreen(
         Column(Modifier.rise(arrival[1], 16.dp).animateItem(placementSpec = tween(Motion.LIST, easing = Motion.EaseUi))) {
           HorizontalDivider()
           // Name and count share a baseline; the chevron centres on the row.
-          Row(Modifier.fillMaxWidth().clickable { expanded = if (open) null else area.id }.padding(vertical = 12.dp)) {
+          Row(
+            Modifier.fillMaxWidth()
+              .semantics { stateDescription = if (open) "Expanded" else "Collapsed" }
+              .clickable(onClickLabel = if (open) "Hide topics" else "Show topics") { expanded = if (open) null else area.id }
+              .padding(vertical = 12.dp)
+          ) {
             Text(area.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).alignByBaseline())
             // Fractions read the same everywhere: DM Sans, no spaces.
             Text("$covered/${topics.size}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.alignByBaseline())

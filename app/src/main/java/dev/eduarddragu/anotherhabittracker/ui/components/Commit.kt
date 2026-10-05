@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** A session or freeze just written. The screen the user lands on afterwards plays it once. */
-data class Commit(val habitId: Long, val day: LocalDate, val previousStreak: Int, val frozen: Boolean = false, val at: Long = SystemClock.elapsedRealtime())
+data class Commit(val habitId: Long, val day: LocalDate, val previousStreak: Int, val at: Long = SystemClock.elapsedRealtime())
 
 /** Hand-off between the log form, which writes, and the screen underneath it, which celebrates. */
 object Commits {

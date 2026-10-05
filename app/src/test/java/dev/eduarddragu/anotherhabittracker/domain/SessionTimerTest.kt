@@ -65,6 +65,16 @@ class SessionTimerTest {
   fun oneTapLengths() {
     assertEquals(30, SessionTimer.defaultMinutes(HabitKind.STUDY))
     assertEquals(5, SessionTimer.defaultMinutes(HabitKind.SIMPLE))
+    assertEquals(20, SessionTimer.defaultMinutes(HabitKind.SIMPLE, 20))
+  }
+
+  @Test
+  fun presetsFollowTheHabitsOwnLength() {
+    assertEquals(listOf(30, 45, 60), SessionTimer.presets(HabitKind.STUDY))
+    assertEquals(listOf(5, 10, 15), SessionTimer.presets(HabitKind.SIMPLE))
+    assertEquals(listOf(10, 20, 30), SessionTimer.presets(HabitKind.SIMPLE, 20))
+    assertEquals(listOf(15, 30, 45), SessionTimer.presets(HabitKind.STUDY, 30))
+    assertEquals(listOf(5, 10), SessionTimer.presets(HabitKind.SIMPLE, 5))
   }
 
   @Test
@@ -102,5 +112,41 @@ class SessionTimerTest {
     assertEquals(true, session(30).pause(start + 5 * min).endsAtMidnight(tomorrow, start + 10 * min))
     assertEquals("alarm lost", true, session(30).endsAtMidnight(tomorrow, start + 40 * min))
     assertEquals("today's", false, session(30).pause(start).endsAtMidnight(day, start + 10 * min))
+  }
+
+  // A reboot: saved at [savedElapsed] on the old boot's clock, read [later] wall time after, [sinceBoot] into the new boot.
+  private fun afterReboot(saved: FocusSession, savedElapsed: Long, later: Long, sinceBoot: Long = 2 * min): FocusSession {
+    val wall = 1_800_000_000_000L
+    return saved.shifted(SessionTimer.rebootShift(sameBoot = false, savedWall = wall, savedElapsed = savedElapsed, nowWall = wall + later, nowElapsed = sinceBoot))
+  }
+
+  @Test
+  fun aRebootKeepsTheTimeThatPassed() {
+    val s = afterReboot(session(30), savedElapsed = start, later = 10 * min)
+    assertEquals(SessionPhase.RUNNING, s.phase(2 * min))
+    assertEquals(20 * min, s.remaining(2 * min))
+  }
+
+  @Test
+  fun aRebootPastTheEndFinishesItCappedAtItsLength() {
+    val s = afterReboot(session(30), savedElapsed = start, later = 40 * min)
+    assertEquals(SessionPhase.FINISHED, s.phase(2 * min))
+    assertEquals(30 * min, s.elapsed(2 * min))
+    assertEquals(30, s.minutesToLog(2 * min))
+  }
+
+  @Test
+  fun aRebootKeepsAPausedSessionsRemainingTime() {
+    val paused = session(30).pause(start + 5 * min)
+    val s = afterReboot(paused, savedElapsed = start + 5 * min, later = 60 * min)
+    assertEquals(SessionPhase.PAUSED, s.phase(2 * min))
+    assertEquals(25 * min, s.remaining(2 * min))
+    assertEquals(25 * min, s.resume(10 * min).remaining(10 * min))
+  }
+
+  @Test
+  fun theSameBootDoesntShift() {
+    assertEquals(0L, SessionTimer.rebootShift(sameBoot = true, savedWall = 0, savedElapsed = start, nowWall = 60 * min, nowElapsed = start + 60 * min))
+    assertEquals(session(), session().shifted(0))
   }
 }

@@ -23,8 +23,32 @@ class TimeOffTest {
     assertEquals(5, summary.stats.streak)
     assertTrue(summary.pausedToday)
     assertFalse("nothing nags on a day off", summary.dayOpen)
-    assertNull("the week's freeze is untouched", summary.freezeUsedOn)
+    assertFalse("a day off takes no freeze", summary.canFreezeToday)
+    // Yesterday was off too: a session done then can still be logged, but there is nothing to freeze.
+    assertTrue(summary.yesterdayEmpty)
+    assertTrue(summary.yesterdayOff)
+    assertFalse(summary.canFreezeYesterday)
+  }
+
+  @Test
+  fun aDayOffWithASessionIsNotEmpty() {
+    val records = listOf(session(LocalDate.of(2026, 10, 2)), session(today.minusDays(1)))
+    val off = TimeOff.days(listOf(TimeOffPeriod(start = LocalDate.of(2026, 10, 3))), today)
+    val summary = HabitSummaries.build(HabitKind.SIMPLE, records, today, off) { error("") }
     assertFalse(summary.yesterdayEmpty)
+    assertFalse(summary.yesterdayOff)
+  }
+
+  @Test
+  fun aDayOffYesterdayAfterANormalDayCanBeLogged() {
+    // Off from yesterday only, today is back to normal.
+    val records = listOf(session(today.minusDays(2)))
+    val off = TimeOff.days(listOf(TimeOffPeriod(start = today.minusDays(1), end = today.minusDays(1))), today)
+    val summary = HabitSummaries.build(HabitKind.SIMPLE, records, today, off) { error("") }
+    assertTrue(summary.yesterdayEmpty)
+    assertTrue(summary.yesterdayOff)
+    assertFalse(summary.canFreezeYesterday)
+    assertTrue("today is not off", summary.canFreezeToday)
   }
 
   @Test
@@ -90,7 +114,23 @@ class TimeOffTest {
     val off = TimeOff.days(listOf(TimeOffPeriod(start = LocalDate.of(2026, 10, 5), end = LocalDate.of(2026, 10, 6))), today)
     val summary = HabitSummaries.build(HabitKind.SIMPLE, records, today, off) { error("") }
     assertTrue(summary.yesterdayEmpty)
+    assertFalse("yesterday was a normal day", summary.yesterdayOff)
     assertTrue("the week's freeze is still free", summary.canFreezeYesterday)
     assertTrue(Freezes.canFreeze(today.minusDays(1), records.map { it.day }.toSet(), emptySet()))
+  }
+
+  @Test
+  fun aFuturePeriodHasNoDaysYet() {
+    val periods = listOf(TimeOffPeriod(start = today.plusDays(3)))
+    assertEquals(emptySet<LocalDate>(), TimeOff.days(periods, today))
+    assertNull(TimeOff.current(periods, today))
+    assertNull(TimeOff.heldSince(periods, today, emptySet()))
+  }
+
+  @Test
+  fun anOpenPeriodFromTheFurthestStartCountsTodayToo() {
+    val days = TimeOff.days(listOf(TimeOffPeriod(start = today.minusDays(TimeOff.MAX_DAYS_BACK))), today)
+    assertEquals(61, days.size)
+    assertTrue(today in days)
   }
 }

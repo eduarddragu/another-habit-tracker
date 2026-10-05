@@ -2,6 +2,7 @@ package dev.eduarddragu.anotherhabittracker.data
 
 import androidx.room.withTransaction
 import dev.eduarddragu.anotherhabittracker.domain.BackupFile
+import dev.eduarddragu.anotherhabittracker.domain.Books
 import dev.eduarddragu.anotherhabittracker.domain.Cell
 import dev.eduarddragu.anotherhabittracker.domain.Curriculum
 import dev.eduarddragu.anotherhabittracker.domain.EntryType
@@ -13,10 +14,12 @@ import dev.eduarddragu.anotherhabittracker.domain.HabitSummaries
 import dev.eduarddragu.anotherhabittracker.domain.HabitSummary
 import dev.eduarddragu.anotherhabittracker.domain.LogRecord
 import dev.eduarddragu.anotherhabittracker.domain.PhoneClock
-import dev.eduarddragu.anotherhabittracker.domain.PickKind
 import dev.eduarddragu.anotherhabittracker.domain.TopicMark
 import dev.eduarddragu.anotherhabittracker.domain.TimeOff
 import dev.eduarddragu.anotherhabittracker.domain.TimeOffPeriod
+import dev.eduarddragu.anotherhabittracker.domain.Restore
+import dev.eduarddragu.anotherhabittracker.domain.Shelf
+import dev.eduarddragu.anotherhabittracker.domain.TodaysTopics
 import dev.eduarddragu.anotherhabittracker.domain.TopicPick
 import dev.eduarddragu.anotherhabittracker.domain.TopicPicker
 import java.time.Clock
@@ -47,6 +50,8 @@ data class HabitStatus(
   val since: LocalDate? = null,
   /** Today's topic was chosen by hand (keep going, or a review picked from the curriculum). */
   val focused: Boolean = false,
+  /** Reading habits only (Books.appliesTo): the book on the go and the read list. */
+  val books: Shelf? = null,
 ) {
   val today: LocalDate
     get() = summary.today
@@ -184,6 +189,14 @@ class HabitRepository(
 
   suspend fun deleteTimeOff(id: Long) = db.timeOff().delete(id)
 
+  /**
+   * An undo of a removed period: it goes back through [startTimeOff], so a period added meanwhile
+   * can't end up overlapping it. Runs in the app's scope, since the snackbar outlives the screen.
+   */
+  fun restoreTimeOff(period: TimeOffPeriod) {
+    scope.launch { startTimeOff(period.start, period.end) }
+  }
+
   suspend fun habit(id: Long): Habit? = db.habits().byId(id)
 
   suspend fun habits(): List<Habit> = db.habits().all()
@@ -218,21 +231,46 @@ class HabitRepository(
       true
     }
 
-  /** Returns false when the rules don't allow a freeze on that day. */
-  suspend fun freeze(habitId: Long, day: LocalDate): Boolean =
+  /**
+   * The new freeze's id, for an undo; null when the rules don't allow a freeze on that day, or it's a
+   * day off (it needs none).
+   */
+  suspend fun freeze(habitId: Long, day: LocalDate): Long? =
     db.withTransaction {
+      if (db.timeOff().all().any { it.toPeriod().contains(day) }) return@withTransaction null
       val records = db.entries().forHabit(habitId)
       val sessions = records.filter { it.type == EntryType.SESSION }.map { it.day }.toSet()
       val freezes = records.filter { it.type == EntryType.FREEZE }.map { it.day }.toSet()
-      if (!Freezes.canFreeze(day, sessions, freezes)) return@withTransaction false
+      if (!Freezes.canFreeze(day, sessions, freezes)) return@withTransaction null
       db.entries().insert(Entry(habitId = habitId, day = day, type = EntryType.FREEZE))
-      true
     }
+
+  /** An undo of a freeze: takes it back if it's still a freeze. In the app's scope, like [undoKnown]. */
+  fun undoFreeze(id: Long) {
+    scope.launch { db.withTransaction { if (db.entries().byId(id)?.type == EntryType.FREEZE) db.entries().delete(id) } }
+  }
+
+  /**
+   * An undo of a removed freeze: it comes back as it was, unless a session has been logged on its day
+   * meanwhile (the session wins, as it would have replaced the freeze anyway).
+   */
+  fun restoreFreeze(entry: Entry) {
+    scope.launch {
+      db.withTransaction {
+        val records = db.entries().forHabit(entry.habitId)
+        if (records.any { it.day == entry.day && (it.type == EntryType.SESSION || it.type == EntryType.FREEZE) }) return@withTransaction
+        db.entries().insert(entry)
+      }
+    }
+  }
 
   suspend fun updateHabit(habit: Habit) = db.habits().update(habit)
 
   /** Keeps going on [topicId] today instead of the picker's topic; null goes back to the picker. */
   fun keepGoing(habitId: Long, topicId: String?) = focus.set(habitId, topicId?.let { Focus(today(), it) })
+
+  /** Drops every "keep going" choice, after a restore. */
+  fun clearKeepGoing() = focus.clearAll()
 
   /** Marks topics as already known today; topics already known are left alone. */
   /** Returns the topics that were newly marked, so an undo takes back exactly those. */
@@ -251,6 +289,57 @@ class HabitRepository(
 
   /** A session or freeze taken back. */
   suspend fun deleteEntry(id: Long) = db.entries().delete(id)
+
+  /**
+   * A reading session, new or corrected ([entry] with its id), and whether its book was finished
+   * with it: the FINISHED mark on the session's day follows the toggle, and a book renamed while
+   * editing takes its mark along. One transaction, so the read list never sees half of it.
+   */
+  suspend fun saveReading(entry: Entry, finished: Boolean): Long =
+    db.withTransaction {
+      val previous = if (entry.id != 0L) db.entries().byId(entry.id) else null
+      val id =
+        if (previous != null) {
+          db.entries().update(entry)
+          entry.id
+        } else {
+          logSession(entry.copy(id = 0))
+        }
+      val marks = db.entries().forHabit(entry.habitId).filter { it.type == EntryType.FINISHED && it.day == entry.day }
+      val keys = listOfNotNull(previous?.track, entry.track).map(Books::key).toSet()
+      marks.filter { Books.key(it.track.orEmpty()) in keys }.forEach { db.entries().delete(it.id) }
+      if (finished && entry.track != null) db.entries().insert(Entry(habitId = entry.habitId, day = entry.day, type = EntryType.FINISHED, track = entry.track, module = entry.module))
+      id
+    }
+
+  /**
+   * A session taken back. For a book, the FINISHED mark of its day goes with it once no session of
+   * that book is left on that day: a book can't be finished by a session that never happened.
+   */
+  suspend fun deleteSession(id: Long) =
+    db.withTransaction {
+      val entry = db.entries().byId(id) ?: return@withTransaction
+      db.entries().delete(id)
+      val title = entry.track?.let(Books::key) ?: return@withTransaction
+      val sameDay = db.entries().forHabit(entry.habitId).filter { it.day == entry.day && it.track?.let(Books::key) == title }
+      if (sameDay.none { it.type == EntryType.SESSION }) sameDay.filter { it.type == EntryType.FINISHED }.forEach { db.entries().delete(it.id) }
+    }
+
+  /** Whether [title] was marked finished on [day]: the log form's toggle, when editing a session. */
+  suspend fun finishedOn(habitId: Long, day: LocalDate, title: String): Boolean =
+    db.entries().forHabit(habitId).any { it.type == EntryType.FINISHED && it.day == day && Books.key(it.track.orEmpty()) == Books.key(title) }
+
+  /** Marks a book finished today, from the habit's page; hands back the mark's id, for the undo. */
+  suspend fun markFinished(habitId: Long, title: String, author: String?): Long =
+    db.withTransaction {
+      db.entries().forHabit(habitId).firstOrNull { it.type == EntryType.FINISHED && it.day == today() && Books.key(it.track.orEmpty()) == Books.key(title) }?.id
+        ?: db.entries().insert(Entry(habitId = habitId, day = today(), type = EntryType.FINISHED, track = title, module = author))
+    }
+
+  /** An undo of [markFinished]. In the app's scope, like [undoKnown]. */
+  fun undoFinished(id: Long) {
+    scope.launch { db.withTransaction { if (db.entries().byId(id)?.type == EntryType.FINISHED) db.entries().delete(id) } }
+  }
 
   suspend fun unmarkKnown(habitId: Long, topicId: String) = db.entries().deleteKnown(habitId, topicId)
 
@@ -284,56 +373,32 @@ class HabitRepository(
       db.timeOff().deleteAll()
       db.timeOff().insertAll(file.timeOff.map { it.toRow() })
       db.habits().insertAll(file.habits.map { it.toHabit() })
-      // A freeze that shares its day with a session is dropped: the session replaced it.
-      val sessionDays = file.entries.filter { it.type == EntryType.SESSION.name }.map { it.habitId to it.day }.toSet()
-      db.entries().insertAll(file.entries.filterNot { it.type == EntryType.FREEZE.name && (it.habitId to it.day) in sessionDays }.map { it.toEntry() })
+      db.entries().insertAll(Restore.entriesToKeep(file.entries).map { it.toEntry() })
       before
     }
 
-  /** First launch only: the two habits the app was built for. */
+  /** First launch only: the habits the app was built for. */
   suspend fun seedIfEmpty() {
     db.withTransaction {
       if (db.habits().count() > 0) return@withTransaction
-      db.habits().insert(Habit(name = "Study", kind = HabitKind.STUDY, reminderTimes = "09:30,13:30,17:30,19:30,21:30", position = 0, icon = HabitIcon.BOOK.name))
-      db.habits()
-        .insert(
-          Habit(
-            name = "Meditation",
-            kind = HabitKind.SIMPLE,
-            reminderTimes = "08:00,11:00,15:00,21:45",
-            linkedPackage = "meditofoundation.medito",
-            position = 1,
-            icon = HabitIcon.LOTUS.name,
-          )
-        )
+      db.habits().insertAll(listOf(STUDY.copy(position = 0), MEDITATION.copy(position = 1), READING.copy(position = 2)))
     }
   }
 
   private fun status(habit: Habit, entries: List<Entry>, today: LocalDate, paused: Set<LocalDate> = emptySet(), timeOff: List<TimeOffPeriod> = emptyList()): HabitStatus {
-    val records = entries.map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId) }
+    val records = entries.map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId, it.track, it.module) }
     val built = HabitSummaries.build(habit.kind, records, today, paused) { curriculum }
-    // A "keep going" choice for today replaces the picker's topic everywhere: screens, widget, reminders.
-    // Marked as known since ("I know this" on it), it gives way to the picker; an undo brings it back.
-    val chosen = focus.all.value[habit.id]?.takeIf { it.day == today }?.let { curriculum.byId[it.topicId] }?.takeIf { built.topicMarks[it.id]?.known != true }
-    // Back from (or during) time off with nothing studied since it began: the topic of its first day
-    // is held and offered again, until it's logged. A topic chosen by hand still wins.
-    val held =
-      if (chosen == null && habit.kind == HabitKind.STUDY) {
-        TimeOff.heldSince(timeOff, today, entries.filter { it.type == EntryType.SESSION }.map { it.day }.toSet())?.let { start ->
-          TopicPicker.pickOn(curriculum, HabitSummaries.topicMarks(records), start)?.topic?.takeIf { it.id !in built.topicMarks || built.topicMarks[it.id]?.known != true }
-        }
-      } else null
-    // A chosen topic that is due for review reads as a review; otherwise it's the one being continued.
-    val chosenKind = chosen?.let { topic -> if (built.topicMarks[topic.id]?.let { TopicPicker.dueDate(it)?.isAfter(today) == false } == true) PickKind.REVIEW else PickKind.CONTINUE }
-    val summary =
-      when {
-        chosen != null && habit.kind == HabitKind.STUDY -> built.copy(pick = TopicPick(chosen, chosenKind!!))
-        held != null -> built.copy(pick = TopicPick(held, PickKind.CONTINUE))
-        else -> built
-      }
+    // A "keep going" choice for today, or a topic held through time off, replaces the picker's topic
+    // everywhere: screens, widget, reminders.
+    val chosen = focus.all.value[habit.id]
+    val topic = TodaysTopics.resolve(habit.kind, built.pick, built.topicMarks, records, today, chosen?.day, chosen?.topicId, timeOff, curriculum)
+    val summary = built.copy(pick = topic.pick)
     // Sessions and freezes: both are things he did on a day, and both can be taken back from Recent.
     val sessionDays = entries.filter { it.type == EntryType.SESSION }.map { it.day }.toSet()
     val recent = entries.filter { it.type == EntryType.SESSION || (it.type == EntryType.FREEZE && it.day !in sessionDays) }.sortedWith(compareByDescending<Entry> { it.day }.thenByDescending { it.loggedAt })
-    return HabitStatus(habit, summary, recent, since = entries.minOfOrNull { it.day }, focused = chosen != null && habit.kind == HabitKind.STUDY)
+    // A finished book is a mark, not something done on a day: it doesn't move where the history starts.
+    val since = entries.filter { it.type != EntryType.FINISHED }.minOfOrNull { it.day }
+    val books = if (Books.appliesTo(habit.kind, habit.name, habit.icon)) Books.shelf(records) else null
+    return HabitStatus(habit, summary, recent, since = since, focused = topic.focused, books = books)
   }
 }

@@ -10,4 +10,7 @@ class QuietStore(context: Context) {
   fun until(habitId: Long): Long? = prefs.getLong(habitId.toString(), 0L).takeIf { it > 0 }
 
   fun quietFor(habitId: Long, millis: Long) = prefs.edit { putLong(habitId.toString(), System.currentTimeMillis() + millis) }
+
+  /** After a restore: the ids may now name other habits. */
+  fun clearAll() = prefs.edit { clear() }
 }
