@@ -22,6 +22,12 @@ class FocusStore(context: Context) {
     _all.value = load()
   }
 
+  /** After a restore: the ids may now name other habits. */
+  fun clearAll() {
+    prefs.edit { clear() }
+    _all.value = emptyMap()
+  }
+
   private fun load(): Map<Long, Focus> =
     prefs.all.mapNotNull { (key, value) ->
       val id = key.toLongOrNull() ?: return@mapNotNull null

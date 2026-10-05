@@ -38,7 +38,7 @@ class ReminderScheduler(private val context: Context) {
     val slots = minOf(MAX_SLOTS, maxOf(parseReminderTimes(habit.reminderTimes).size, habit.weekendReminderTimes?.let { parseReminderTimes(it).size } ?: 0))
     for (slot in 0 until slots) {
       val trigger = ReminderPlan.nextSlotTrigger(slot, now) { day -> habit.reminderTimesOn(day).take(MAX_SLOTS) }
-      if (trigger != null) setAlarm(trigger.toInstant().toEpochMilli(), pendingIntent(habit.id, slot))
+      if (trigger != null) trigger.toInstant().toEpochMilli().let { at -> setAlarm(at, pendingIntent(habit.id, slot, at)) }
     }
     // Slots removed from the habit must stop firing.
     for (slot in slots until MAX_SLOTS) {
@@ -81,19 +81,22 @@ class ReminderScheduler(private val context: Context) {
     else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, operation)
   }
 
-  private fun intent(habitId: Long, slot: Int) =
+  // Extras don't take part in matching a PendingIntent, so the trigger time doesn't change which
+  // alarm an intent finds or replaces.
+  private fun intent(habitId: Long, slot: Int, triggerAt: Long? = null) =
     Intent(context, ReminderReceiver::class.java)
       .setAction(ReminderReceiver.ACTION_REMIND)
       .putExtra(ReminderReceiver.EXTRA_HABIT_ID, habitId)
       .putExtra(ReminderReceiver.EXTRA_SLOT, slot)
+      .apply { triggerAt?.let { putExtra(ReminderReceiver.EXTRA_TRIGGER_AT, it) } }
 
   private fun requestCode(habitId: Long, slot: Int) = (habitId * MAX_SLOTS + slot).toInt()
 
-  private fun pendingIntent(habitId: Long, slot: Int): PendingIntent =
+  private fun pendingIntent(habitId: Long, slot: Int, triggerAt: Long): PendingIntent =
     PendingIntent.getBroadcast(
       context,
       requestCode(habitId, slot),
-      intent(habitId, slot),
+      intent(habitId, slot, triggerAt),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 

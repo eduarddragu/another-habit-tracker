@@ -13,8 +13,8 @@ android {
         applicationId = "dev.eduarddragu.anotherhabittracker"
         minSdk = 34
         targetSdk = 36
-        versionCode = 39
-        versionName = "1.2.1"
+        versionCode = 40
+        versionName = "1.3.0"
     }
 
     // The signing key lives outside the repo (see README). Without it, builds fall
@@ -83,7 +83,6 @@ dependencies {
   // Compose
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.material3)
-  // Tooling
 
   // Unit tests run on the JVM only: instrumented tests uninstall the app from the device afterwards.
   testImplementation(libs.junit)

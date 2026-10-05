@@ -89,11 +89,11 @@ class ScrollGuardService : AccessibilityService() {
     // volume panel) and keyboards open on top of an app without leaving it.
     val className = event.className?.toString() ?: return
     if (className == GuardActivity::class.java.name) return
-    if (pkg == SYSTEM_UI || isKeyboard(pkg)) return
     // Only an activity coming up changes the app in front: a dialog, a popup or another app's floating
     // window (the share sheet, chat heads) leaves no event behind when it goes, so taking it for a
-    // change would stop the count until the next real one.
-    if (!isActivity(pkg, className)) return
+    // change would stop the count until the next real one. Cheapest first: the activity check is
+    // cached, the keyboard one asks the system.
+    if (pkg == SYSTEM_UI || !isActivity(pkg, className) || isKeyboard(pkg)) return
     run(tracker.onFront(pkg, event.eventTime))
   }
 
@@ -109,7 +109,7 @@ class ScrollGuardService : AccessibilityService() {
   private fun run(actions: List<GuardAction>) {
     actions.forEach { action ->
       when (action) {
-        is GuardAction.Use -> app.guard.save(app.guard.budget(app.repository.today()).use(action.millis))
+        is GuardAction.Use -> app.guard.use(action.day, action.millis)
         GuardAction.CancelTimer -> handler.removeCallbacks(timeUp)
         is GuardAction.Schedule -> handler.postDelayed(timeUp, action.millis)
         is GuardAction.Block -> runCatching { startActivity(GuardActivity.intent(this, action.pkg)) }.onFailure { Log.e(HabitApp.TAG, "Couldn't open the guard", it) }

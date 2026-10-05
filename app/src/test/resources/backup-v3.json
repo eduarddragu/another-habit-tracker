@@ -1,0 +1,22 @@
+{
+  "format": "another-habit-tracker",
+  "version": 3,
+  "exportedAt": "2026-09-28T23:30+02:00",
+  "zone": "Europe/Rome",
+  "appVersionCode": 30,
+  "dbSchema": 4,
+  "curriculumVersion": 4,
+  "habits": [
+    { "id": 1, "name": "Study", "kind": "STUDY", "reminderTimes": "09:30,21:30", "linkedPackage": null, "position": 0, "icon": "BOOK", "weekendReminderTimes": null },
+    { "id": 2, "name": "Meditation", "kind": "SIMPLE", "reminderTimes": "08:00,21:45", "linkedPackage": "meditofoundation.medito", "position": 1, "icon": null, "weekendReminderTimes": "10:00,16:00" }
+  ],
+  "entries": [
+    { "id": 10, "habitId": 1, "day": "2026-09-28", "type": "SESSION", "score": 4, "minutes": 30, "note": "select and timeouts", "extraTopics": "", "track": null, "module": null, "loggedAt": 1790000000000, "topicId": "go-concurrency" },
+    { "id": 11, "habitId": 1, "day": "2026-09-27", "type": "KNOWN", "score": null, "minutes": null, "note": "", "extraTopics": "", "track": null, "module": null, "loggedAt": 1789900000000, "topicId": "a-topic-retired-since" },
+    { "id": 12, "habitId": 2, "day": "2026-09-28", "type": "FREEZE", "score": null, "minutes": null, "note": "", "extraTopics": "", "track": null, "module": null, "loggedAt": 1790000100000, "topicId": null }
+  ],
+  "timeOff": [
+    { "id": 1, "start": "2026-09-20", "end": "2026-09-22" },
+    { "id": 2, "start": "2026-09-27", "end": null }
+  ]
+}

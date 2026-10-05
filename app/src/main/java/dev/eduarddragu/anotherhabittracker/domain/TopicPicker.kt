@@ -57,6 +57,9 @@ object TopicPicker {
 
   private val SCORE_MEANINGS = mapOf(1 to "Didn't get it", 2 to "Partially", 3 to "Could explain the gist", 4 to "Could explain it properly", 5 to "Could teach it")
 
+  /** What a score says on its own: "Didn't get it" for a 1, "Could teach it" for a 5. */
+  fun scoreLabel(score: Int): String = SCORE_MEANINGS.getValue(score.coerceIn(1, 5))
+
   /**
    * What a score does to the topic, in one line for the log form, built from the same rules the
    * picker uses so the two can't drift apart.
@@ -64,7 +67,7 @@ object TopicPicker {
   fun scoreMeaning(score: Int): String {
     val days = REVIEW_AFTER_DAYS.getValue(score.coerceIn(1, 5))
     val effect = if (score < UNLOCK_SCORE) "Back in $days days, unlocks nothing." else if (score == UNLOCK_SCORE) "Unlocks what's next, review in $days days." else "Review in $days days."
-    return "${SCORE_MEANINGS.getValue(score.coerceIn(1, 5))}. $effect"
+    return "${scoreLabel(score)}. $effect"
   }
   private const val REVIEW_CHANCE = 0.2
   private const val RECENT_SESSIONS = 2
@@ -103,21 +106,19 @@ object TopicPicker {
   fun pickOn(curriculum: Curriculum, marks: List<TopicMark>, day: LocalDate): TopicPick? =
     pick(curriculum, marks.filter { it.day.isBefore(day) || (it.known && !it.day.isAfter(day)) }, day)
 
-  fun pick(curriculum: Curriculum, marks: List<TopicMark>, day: LocalDate, only: Set<String>? = null): TopicPick? {
+  fun pick(curriculum: Curriculum, marks: List<TopicMark>, day: LocalDate): TopicPick? {
     val random = Random(day.toEpochDay() * 7919 + 30)
     val roll = random.nextDouble()
     val latest = latest(marks, day)
-    val candidates = curriculum.topics.filter { only == null || it.id in only }
 
     val due =
-      candidates
+      curriculum.topics
         .mapNotNull { topic -> latest[topic.id]?.let { mark -> dueDate(mark)?.takeIf { !it.isAfter(day) }?.let { Triple(it, topic, mark) } } }
         .sortedBy { it.first }
     due.firstOrNull { it.third.score < UNLOCK_SCORE }?.let { return TopicPick(it.second, PickKind.REVIEW) }
 
-    val fresh = candidates.filter { it.id !in latest && isUnlocked(it, latest) }
-    val plainDue = if (only != null) emptyList() else due
-    if (plainDue.isNotEmpty() && (fresh.isEmpty() || roll < REVIEW_CHANCE)) return TopicPick(plainDue.first().second, PickKind.REVIEW)
+    val fresh = curriculum.topics.filter { it.id !in latest && isUnlocked(it, latest) }
+    if (due.isNotEmpty() && (fresh.isEmpty() || roll < REVIEW_CHANCE)) return TopicPick(due.first().second, PickKind.REVIEW)
 
     if (fresh.isNotEmpty()) {
       val recentAreas =
@@ -136,7 +137,6 @@ object TopicPicker {
       return TopicPick(fresh.last(), PickKind.NEW)
     }
 
-    if (only != null) return null
     // Everything seen and nothing due: revisit the oldest topic that wasn't marked as known.
     return latest.values.filter { !it.known && it.topicId in curriculum.byId }.minByOrNull { it.day }?.let {
       TopicPick(curriculum.byId.getValue(it.topicId), PickKind.REVIEW)

@@ -23,6 +23,9 @@ class PickHistory(context: Context) {
     }
   }
 
+  /** After a restore: the ids may now name other habits. */
+  fun clearAll() = prefs.edit { clear() }
+
   private fun key(habitId: Long, day: LocalDate) = "$habitId@$day"
 
   private fun dayOf(key: String): LocalDate? = runCatching { LocalDate.parse(key.substringAfter('@')) }.getOrNull()

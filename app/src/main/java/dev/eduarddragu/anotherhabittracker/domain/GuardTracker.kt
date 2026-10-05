@@ -1,9 +1,11 @@
 package dev.eduarddragu.anotherhabittracker.domain
 
+import java.time.LocalDate
+
 /** What the scroll guard's service should do after an event, in order. */
 sealed interface GuardAction {
-  /** Add [millis] of guarded time to today's budget. */
-  data class Use(val millis: Long) : GuardAction
+  /** Add [millis] of guarded time to the budget of [day]. */
+  data class Use(val day: LocalDate, val millis: Long) : GuardAction
 
   /** Stop the running timer, if any. */
   data object CancelTimer : GuardAction
@@ -26,7 +28,7 @@ sealed interface GuardAction {
  * the statuses off the main thread) is dropped when it comes back, so it can't start counting for an
  * app that's gone or a screen that's off. Counting only runs while a guarded app is in front, the
  * screen is on and something is still open today; the timer never runs past midnight, so the day's
- * budget starts over on time.
+ * budget starts over on time. Time counted across midnight is split between the two days.
  */
 class GuardTracker(private val isGuarded: (String) -> Boolean, private val now: () -> Long) {
   var front: String? = null
@@ -37,6 +39,10 @@ class GuardTracker(private val isGuarded: (String) -> Boolean, private val now: 
 
   private var screenOn = true
   private var countingSince: Long? = null
+
+  /** The day being counted for, and when (on the [now] clock) it ends. */
+  private var countingDay: LocalDate? = null
+  private var countingDayEnds = Long.MAX_VALUE
 
   val counting: Boolean
     get() = countingSince != null
@@ -89,8 +95,8 @@ class GuardTracker(private val isGuarded: (String) -> Boolean, private val now: 
   fun onDayChanged(): List<GuardAction> = onTimeUp()
 
   /**
-   * The outcome of [GuardAction.Evaluate]: whether anything is still open today, the time left in the
-   * budget, and how long until midnight.
+   * The outcome of [GuardAction.Evaluate]: whether anything is still open today, the time left in
+   * today's budget (its day is the one counted for), and how long until midnight.
    */
   fun onEvaluated(generation: Int, anyHabitOpen: Boolean, budget: ScrollBudget, millisToMidnight: Long): List<GuardAction> {
     if (generation != this.generation || counting) return emptyList()
@@ -101,7 +107,10 @@ class GuardTracker(private val isGuarded: (String) -> Boolean, private val now: 
       return listOf(GuardAction.Block(pkg))
     }
     blocked = false
-    countingSince = now()
+    val start = now()
+    countingSince = start
+    countingDay = budget.day
+    countingDayEnds = start + millisToMidnight
     return listOf(GuardAction.Schedule(minOf(budget.remainingMillis, millisToMidnight + MIDNIGHT_MARGIN)))
   }
 
@@ -111,12 +120,23 @@ class GuardTracker(private val isGuarded: (String) -> Boolean, private val now: 
     return listOf(GuardAction.Evaluate(generation))
   }
 
-  /** Ends counting, if it was running, and invalidates evaluations still on their way. */
+  /**
+   * Ends counting, if it was running, and invalidates evaluations still on their way. Time past
+   * midnight goes to the next day (the timer looks again just after it, so there is never more).
+   */
   private fun stop(): List<GuardAction> {
     generation++
     val since = countingSince ?: return listOf(GuardAction.CancelTimer)
+    val day = countingDay!!
     countingSince = null
-    return listOf(GuardAction.CancelTimer, GuardAction.Use(now() - since))
+    countingDay = null
+    val end = now()
+    val midnight = countingDayEnds.coerceIn(since, maxOf(since, end))
+    return listOfNotNull(
+      GuardAction.CancelTimer,
+      GuardAction.Use(day, midnight - since).takeIf { midnight > since },
+      GuardAction.Use(day.plusDays(1), end - midnight).takeIf { end > midnight },
+    )
   }
 
   private companion object {

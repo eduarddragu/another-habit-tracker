@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import androidx.core.content.edit
 import dev.eduarddragu.anotherhabittracker.domain.FocusSession
+import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
 import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,10 +24,23 @@ class SessionStore(private val context: Context) {
 
   fun now(): Long = SystemClock.elapsedRealtime()
 
-  fun set(session: FocusSession?) {
+  /**
+   * The countdown notification was swiped away (since Android 14 an ongoing notification can be,
+   * outside a foreground service): it isn't posted again until the session changes by hand.
+   */
+  val hidden: Boolean
+    get() = prefs.getBoolean("hidden", false)
+
+  fun hide() {
+    if (_session.value != null) prefs.edit { putBoolean("hidden", true) }
+  }
+
+  /** [hidden]: whether the countdown stays hidden; any change made by hand shows it again. */
+  fun set(session: FocusSession?, hidden: Boolean = false) {
     prefs.edit {
       clear()
       if (session != null) {
+        if (hidden) putBoolean("hidden", true)
         putLong("habit", session.habitId)
         putString("habitName", session.habitName)
         putString("topic", session.topicId)
@@ -49,10 +63,9 @@ class SessionStore(private val context: Context) {
 
   private fun load(): FocusSession? {
     if (!prefs.contains("habit")) return null
-    // Same boot: the saved times are on today's clock. After a reboot, shift them by how the two
-    // clocks moved since the save.
-    val shift = if (prefs.getInt("boot", -1) == bootCount()) 0L else (now() - (System.currentTimeMillis() - prefs.getLong("wall", 0))) - prefs.getLong("elapsed", 0)
-    fun time(key: String) = if (prefs.contains(key)) prefs.getLong(key, 0) + shift else null
+    // Same boot: the saved times are on today's clock. After a reboot, they move with it.
+    val shift = SessionTimer.rebootShift(prefs.getInt("boot", -1) == bootCount(), prefs.getLong("wall", 0), prefs.getLong("elapsed", 0), System.currentTimeMillis(), now())
+    fun time(key: String) = if (prefs.contains(key)) prefs.getLong(key, 0) else null
     return runCatching {
       FocusSession(
         habitId = prefs.getLong("habit", 0),
@@ -66,6 +79,7 @@ class SessionStore(private val context: Context) {
         pausedTotalMillis = prefs.getLong("pausedTotal", 0),
         finishedAt = time("finished"),
       )
+        .shifted(shift)
     }.getOrNull()
   }
 

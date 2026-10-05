@@ -20,7 +20,7 @@ object Practices {
       Practice("Name what pulls you away", listOf("When a thought takes you, give it a one-word label: planning, worrying, remembering.", "Say the word silently, once.", "Go back to the breath.")),
       Practice("Listen instead", listOf("Use sounds as the anchor instead of the breath.", "Let them come and go without naming the source.", "Near, far, loud, soft. Just hearing.")),
       Practice("Coming back is the practice", listOf("You will drift. Everyone does.", "Noticing you drifted is the rep.", "Come back. Repeat, as often as needed.")),
-      Practice("Ten minutes is enough", listOf("A short session done beats a long one skipped.", "Pick a length you can keep on a bad day.", "Let it grow on its own later.")),
+      Practice("A few minutes is enough", listOf("A short session done beats a long one skipped.", "Pick a length you can keep on a bad day.", "Let it grow on its own later.")),
       Practice("Same time, same place", listOf("Sit where you sat yesterday, if you can.", "Tie the session to something you already do, like coffee.", "Let the routine do the deciding.")),
       Practice("Eyes half open", listOf("Lower your gaze to a spot on the floor a metre ahead.", "Keep it soft, unfocused.", "Useful when closed eyes make you sleepy.")),
       Practice("Feel the breath in one place", listOf("Choose the nostrils, the chest or the belly.", "Stay with the sensation right there.", "When you wander, come back to that same place.")),

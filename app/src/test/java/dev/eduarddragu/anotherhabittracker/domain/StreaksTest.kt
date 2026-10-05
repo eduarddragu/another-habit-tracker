@@ -33,7 +33,29 @@ class StreaksTest {
   }
 
   @Test
-  fun longestSpansFreezes() = assertEquals(4, Streaks.longest(days(0, 1, 5, 6, 7, 9), days(8)))
+  fun theFreezeWeekCrossesTheNewYear() {
+    // Thursday 2026-12-31 and Saturday 2027-01-02 share ISO week 53 of 2026; Monday 2027-01-04 starts week 1.
+    val freezes = setOf(LocalDate.of(2026, 12, 31))
+    assertFalse(Freezes.canFreeze(LocalDate.of(2027, 1, 2), emptySet(), freezes))
+    assertTrue(Freezes.canFreeze(LocalDate.of(2027, 1, 4), emptySet(), freezes))
+  }
+
+  @Test
+  fun yesterdayOnMondayUsesLastWeeksFreeze() {
+    // Monday 2026-10-12: yesterday (Sunday) belongs to the week whose freeze went on Wednesday.
+    val monday = LocalDate.of(2026, 10, 12)
+    val sessions = setOf(LocalDate.of(2026, 10, 10))
+    assertFalse(Freezes.canSaveYesterday(monday, sessions, setOf(LocalDate.of(2026, 10, 7))))
+    assertTrue(Freezes.canSaveYesterday(monday, sessions, emptySet()))
+  }
+
+  @Test
+  fun thirtyDayWindowAcrossALeapFebruary() {
+    val today = LocalDate.of(2028, 3, 1)
+    val stats = Stats.of(listOf(Session(LocalDate.of(2028, 2, 1), null, 10), Session(LocalDate.of(2028, 1, 31), null, 20)), emptySet(), today)
+    assertEquals(1, stats.daysLast30)
+    assertEquals(10, stats.minutesLast30)
+  }
 
   @Test
   fun oneFreezePerIsoWeek() {

@@ -90,6 +90,10 @@ data class FocusSession(
     return minutes.takeIf { it >= SessionTimer.MIN_LOG_MINUTES }
   }
 
+  /** The same session on a clock that moved by [millis]: every saved time moves with it. */
+  fun shifted(millis: Long): FocusSession =
+    if (millis == 0L) this else copy(startedAt = startedAt + millis, pausedAt = pausedAt?.plus(millis), finishedAt = finishedAt?.plus(millis))
+
   /** What the disc shows: minutes left rounded up, or seconds in the last minute. */
   fun display(now: Long): SessionTimer.Display {
     val left = remaining(now)
@@ -103,14 +107,34 @@ object SessionTimer {
   const val EXTEND_MILLIS = 5 * 60_000L
   const val MIN_LOG_MINUTES = 5
 
-  /** Length choices: the log form's presets. */
-  fun presets(kind: HabitKind): List<Int> = if (kind == HabitKind.STUDY) listOf(30, 45, 60) else listOf(5, 10, 15)
+  /**
+   * Length choices: the log form's presets. A habit with its own session length gets half of it, it,
+   * and half again (20 minutes: 10, 20, 30), in steps of five.
+   */
+  fun presets(kind: HabitKind, sessionMinutes: Int? = null): List<Int> {
+    if (sessionMinutes == null) return if (kind == HabitKind.STUDY) listOf(30, 45, 60) else listOf(5, 10, 15)
+    val half = maxOf(MIN_LOG_MINUTES, (sessionMinutes / 2 + 2) / 5 * 5)
+    return listOf(sessionMinutes - half, sessionMinutes, sessionMinutes + half).filter { it > 0 }.distinct()
+  }
+
+  /** What the settings offer as a habit's session length. */
+  val LENGTHS = listOf(5, 10, 15, 20, 25, 30, 45, 60)
 
   /**
-   * One tap starts a session of this length: his study sessions are 30 minutes, meditation's 5.
+   * One tap starts a session of this length: the habit's own length when it has one, else 30 minutes
+   * for study and 5 for the rest (meditation).
    * Longer is "+5 min" as many times as needed.
    */
-  fun defaultMinutes(kind: HabitKind): Int = if (kind == HabitKind.STUDY) 30 else 5
+  fun defaultMinutes(kind: HabitKind, sessionMinutes: Int? = null): Int = sessionMinutes ?: if (kind == HabitKind.STUDY) 30 else 5
+
+  /**
+   * How far times saved at [savedElapsed] (wall clock [savedWall]) move to be on the elapsed clock
+   * read now ([nowElapsed], wall clock [nowWall]). Within the same boot they stay as they are. After a
+   * reboot that clock restarts, so they move by how the two clocks drifted apart since the save: the
+   * time the phone spent off counts as time that passed.
+   */
+  fun rebootShift(sameBoot: Boolean, savedWall: Long, savedElapsed: Long, nowWall: Long, nowElapsed: Long): Long =
+    if (sameBoot) 0L else (nowElapsed - (nowWall - savedWall)) - savedElapsed
 
   data class Display(val value: Int, val seconds: Boolean)
 

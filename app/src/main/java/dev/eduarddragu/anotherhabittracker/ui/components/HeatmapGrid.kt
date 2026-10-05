@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -18,9 +19,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.eduarddragu.anotherhabittracker.domain.Cell
+import dev.eduarddragu.anotherhabittracker.domain.Descriptions
 import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
@@ -47,6 +51,8 @@ fun HeatmapGrid(
   cellSize: Dp,
   gap: Dp,
   modifier: Modifier = Modifier,
+  /** Days off among the dashed days, so the description can tell them from freezes. */
+  daysOff: Set<LocalDate> = emptySet(),
 ) {
   val accent = MaterialTheme.colorScheme.primary
   val empty = MaterialTheme.colorScheme.surfaceContainerHighest
@@ -55,7 +61,9 @@ fun HeatmapGrid(
 
   val todayDone = cells[today] is Cell.Done
 
-  Row(modifier) {
+  // A picture of the history: a screen reader gets its gist in one sentence instead of month labels.
+  val description = remember(cells, daysOff, today) { Descriptions.heatmap(cells, daysOff, today) }
+  Row(modifier.clearAndSetSemantics { contentDescription = description }) {
     Column(Modifier.width(30.dp)) {
       Spacer(Modifier.height(18.dp))
       Column(verticalArrangement = Arrangement.spacedBy(gap)) {

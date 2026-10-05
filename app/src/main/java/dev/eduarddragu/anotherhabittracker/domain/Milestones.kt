@@ -18,6 +18,4 @@ object Milestones {
 
   /** The milestone line when [streak] is exactly one of them, else null. */
   fun line(streak: Int): String? = lines[streak]
-
-  fun isMilestone(streak: Int): Boolean = streak in lines
 }

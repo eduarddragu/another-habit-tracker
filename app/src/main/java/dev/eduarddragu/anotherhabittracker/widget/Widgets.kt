@@ -112,7 +112,10 @@ class TodayWidget : GlanceAppWidget() {
 @Composable
 private fun TodayContent(statuses: List<HabitStatus>) {
   val context = LocalContext.current
-  val done = statuses.count { it.doneToday || it.frozenToday }
+  // A habit on a day off has nothing to do today: it counts neither as done nor as left.
+  val counted = statuses.filterNot { it.summary.pausedToday }
+  val done = counted.count { it.doneToday || it.frozenToday }
+  val tally = if (counted.isEmpty() && statuses.isNotEmpty()) "DAY OFF" else "$done OF ${counted.size}"
   val today = statuses.firstOrNull()?.today
   // Roomy rows (name, topic, week) need about 50dp each; below that every habit gets one line.
   val height = LocalSize.current.height
@@ -128,7 +131,7 @@ private fun TodayContent(statuses: List<HabitStatus>) {
     verticalAlignment = if (roomy) Alignment.Vertical.Top else Alignment.Vertical.CenterVertically,
   ) {
     val date = today?.format(HEADER_DATE)?.uppercase()
-    Text(listOfNotNull(date, "$done OF ${statuses.size}").joinToString(" · "), style = label.copy(color = WidgetColors.accent), modifier = GlanceModifier.padding(start = 6.dp))
+    Text(listOfNotNull(date, tally).joinToString(" · "), style = label.copy(color = WidgetColors.accent), modifier = GlanceModifier.padding(start = 6.dp))
     Spacer(GlanceModifier.height(if (roomy) 6.dp else 2.dp))
     if (statuses.isEmpty()) Text("No habits yet", style = label)
     statuses.forEach { status ->
@@ -158,11 +161,13 @@ private fun TodayRow(context: Context, status: HabitStatus) {
         maxLines = 1,
       )
       val pick = status.pick
+      val book = status.books?.current?.title
       val detail =
         when {
           status.frozenToday -> "Frozen"
           status.doneToday -> "Done"
           pick != null -> pick.topic.title
+          book != null -> book
           Practices.appliesTo(status.habit.name, status.habit.linkedPackage) -> Practices.forDay(status.today).title
           else -> null
         }
