@@ -36,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,10 +55,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -66,7 +66,13 @@ import dev.eduarddragu.anotherhabittracker.R
 import dev.eduarddragu.anotherhabittracker.data.Entry
 import dev.eduarddragu.anotherhabittracker.data.HabitStatus
 import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
+import dev.eduarddragu.anotherhabittracker.domain.BookDay
+import dev.eduarddragu.anotherhabittracker.domain.BookRead
+import dev.eduarddragu.anotherhabittracker.domain.BookSituation
+import dev.eduarddragu.anotherhabittracker.domain.Books
 import dev.eduarddragu.anotherhabittracker.domain.Continuation
+import dev.eduarddragu.anotherhabittracker.domain.Shelf
+import dev.eduarddragu.anotherhabittracker.domain.Descriptions
 import dev.eduarddragu.anotherhabittracker.domain.Curriculum
 import dev.eduarddragu.anotherhabittracker.domain.EntryType
 import dev.eduarddragu.anotherhabittracker.domain.HabitKind
@@ -80,7 +86,7 @@ import dev.eduarddragu.anotherhabittracker.domain.StudiedOn
 import dev.eduarddragu.anotherhabittracker.theme.DateLabel
 import dev.eduarddragu.anotherhabittracker.theme.Motion
 import dev.eduarddragu.anotherhabittracker.theme.NumeralsDisplay
-import dev.eduarddragu.anotherhabittracker.theme.fadeThrough
+import dev.eduarddragu.anotherhabittracker.ui.components.CardLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.CommitPlayback
 import dev.eduarddragu.anotherhabittracker.ui.components.DayCard
 import dev.eduarddragu.anotherhabittracker.ui.components.Gutter
@@ -120,13 +126,29 @@ class HabitDetailViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app, h
 
   fun unmark(topicIds: Set<String>) = app.repository.undoKnown(habitId, topicIds)
 
-  /** Uses this week's freeze on yesterday, which was missed. */
-  fun freezeYesterday(onDone: (Boolean) -> Unit) = once { onDone(app.repository.freeze(habitId, app.repository.today().minusDays(1))) }
+  /** Uses this week's freeze on yesterday, which was missed; hands back the freeze's id (null if refused), for the undo. */
+  fun freezeYesterday(onDone: (Long?) -> Unit) = once { onDone(app.repository.freeze(habitId, app.repository.today().minusDays(1))) }
 
-  fun deleteEntry(id: Long) = once { app.repository.deleteEntry(id) }
+  /** Undo of [freezeYesterday]: in the app's scope, since the snackbar can outlive this page. */
+  fun unfreeze(id: Long) = app.repository.undoFreeze(id)
+
+  /** Takes a freeze back; [onDone] runs once it's gone, for the undo. */
+  fun removeFreeze(entry: Entry, onDone: () -> Unit) =
+    once {
+      app.repository.deleteEntry(entry.id)
+      onDone()
+    }
+
+  fun restoreFreeze(entry: Entry) = app.repository.restoreFreeze(entry)
 
   /** Keep going on [topicId] today (a deep dive); null goes back to the picker's topic. */
   fun keepGoing(topicId: String?) = app.repository.keepGoing(habitId, topicId)
+
+  /** Marks the book on the go finished today; hands back the mark's id, for the undo. */
+  fun markFinished(book: BookRead, onDone: (Long) -> Unit) = once { onDone(app.repository.markFinished(habitId, book.title, book.author)) }
+
+  /** Undo of [markFinished]: in the app's scope, since the snackbar can outlive this page. */
+  fun unfinish(id: Long) = app.repository.undoFinished(id)
 }
 
 private const val YEAR_WEEKS = 53
@@ -169,7 +191,10 @@ fun HabitDetailScreen(
   val study = status.habit.kind == HabitKind.STUDY
   val commit = rememberCommit(habitId)
   val session by app.sessions.session.collectAsStateWithLifecycle()
-  val tick by rememberSessionTick(app, session)
+  // Only this habit's session: another one's clock has nothing to show here.
+  val ownSession = session?.takeIf { it.habitId == habitId }
+  val tick = rememberSessionTick(app, ownSession)
+  val clock = remember(tick) { { tick.value } }
   var removingFreeze by rememberSaveable { mutableStateOf<Long?>(null) }
   // Title, streak, topic, actions, numbers, history: arriving in that order as the page slides in, each
   // settling after the one above it. The topic card is the page's main content, so it takes its time:
@@ -179,24 +204,26 @@ fun HabitDetailScreen(
   // Vertical padding only: the year heatmap runs edge to edge, everything else sits in the gutter.
   // Order: where the habit stands (streak), what to do now (topic or Log), then the numbers and history.
   LazyColumn(modifier, contentPadding = screenPadding(horizontal = 0.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-    item {
+    // Stable keys: an item that comes and goes (stats, heatmap, the practice) doesn't make the others
+    // lose their state or their scroll anchor.
+    item(key = "title") {
       // Settings belong to the habit, not to today's topic, so they sit with the title.
       Row(Modifier.gutter().rise(arrival[0], 16.dp), verticalAlignment = Alignment.Bottom) {
         ScreenTitle("Habit", status.habit.name, Modifier.weight(1f), icon = status.habit.resolvedIcon)
         IconButton(onClick = onSettings) { Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
       }
     }
-    item {
+    item(key = "streak") {
       StreakBlock(
         status,
         commit,
-        onFreezeYesterday = { viewModel.freezeYesterday { ok -> onMessage(if (ok) "Yesterday is frozen" else "Freeze not available") } },
+        onFreezeYesterday = { viewModel.freezeYesterday { id -> if (id != null) onUndoable("Yesterday is frozen") { viewModel.unfreeze(id) } else onMessage("Freeze not available") } },
         onLogYesterday = { onLogOnDay(status.today.minusDays(1)) },
         modifier = Modifier.gutter().rise(arrival[1], 16.dp),
       )
     }
     if (study) {
-      item {
+      item(key = "topic") {
         TodaysTopic(
           status,
           viewModel.curriculum,
@@ -205,8 +232,8 @@ fun HabitDetailScreen(
           onKeepGoing = viewModel::keepGoing,
           onCurriculum = onCurriculum,
           onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null,
-          session = session?.takeIf { it.habitId == habitId },
-          now = tick,
+          session = ownSession,
+          now = clock,
           onEndSession = { Sessions.end(app) },
           onLogSession = { minutes, day -> onLogMinutes(minutes, day) },
           modifier = Modifier.gutter().rise(arrival[2], 32.dp),
@@ -215,10 +242,17 @@ fun HabitDetailScreen(
     }
     // Meditation gets today's practice, with its actions inside the card like the study topic.
     val practice = if (!study && Practices.appliesTo(status.habit.name, status.habit.linkedPackage)) Practices.forDay(status.today) else null
+    // Reading gets the book on the go, and a line about where it stands.
+    val shelf = status.books
     if (practice != null) {
-      item { TodaysPractice(status, practice, onLog = onLog, onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null, modifier = Modifier.gutter().rise(arrival[2], 32.dp)) }
+      item(key = "practice") { TodaysPractice(status, practice, onLog = onLog, onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null, modifier = Modifier.gutter().rise(arrival[2], 32.dp)) }
+    } else if (shelf != null) {
+      item(key = "book") {
+        val book = remember(shelf, status.today, status.doneToday) { Books.day(shelf, status.today, status.doneToday, suggestedMinutes(status)) }
+        TodaysBook(status, book, onLog = onLog, onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null, modifier = Modifier.gutter().rise(arrival[2], 32.dp))
+      }
     } else if (!study || status.habit.linkedPackage != null) {
-      item {
+      item(key = "actions") {
         FlowRow(Modifier.gutter().rise(arrival[3], 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           if (!study) LogButton(status.doneToday, onLog)
           OpenLinkedAppButton(status.habit.linkedPackage)
@@ -226,11 +260,20 @@ fun HabitDetailScreen(
       }
     }
     // No numbers before there is something to count: a row of zeros only says the app is new.
-    if (status.recent.isNotEmpty()) item { StatRow(status, Modifier.gutter().rise(arrival[4], 16.dp)) }
-    if (Heatmap.worthShowing(status.today, status.since)) item { YearHeatmap(status, Modifier.rise(arrival[4], 16.dp)) }
+    if (status.recent.isNotEmpty()) item(key = "stats") { StatRow(status, Modifier.gutter().rise(arrival[4], 16.dp)) }
+    if (Heatmap.worthShowing(status.today, status.since)) item(key = "heatmap") { YearHeatmap(status, Modifier.rise(arrival[4], 16.dp)) }
+    if (shelf != null && (shelf.current != null || shelf.finished.isNotEmpty())) {
+      item(key = "books") {
+        BookList(
+          shelf,
+          onFinish = { book -> viewModel.markFinished(book) { id -> onUndoable("Finished ${book.title}") { viewModel.unfinish(id) } } },
+          modifier = Modifier.gutter().rise(arrival[4], 16.dp),
+        )
+      }
+    }
     // The heading travels with its first entry (8dp inside a section), not a whole section gap above it.
     if (status.recent.isEmpty()) {
-      item {
+      item(key = "recent-empty") {
         Column(Modifier.gutter().rise(arrival[5], 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           SectionLabel("Recent")
           Text("Nothing logged yet.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -241,6 +284,9 @@ fun HabitDetailScreen(
     // A deep dive: the history offers to keep going on the last session's topic instead of today's.
     val keepGoing = if (study) Continuation.candidate(status.recent.map { StudiedOn(it.day, it.topicId) }, status.today, status.pick?.topic?.id) else null
     val keepGoingRow = keepGoing?.let { id -> recent.firstOrNull { it.topicId == id }?.id }
+    // The session a book was finished with: the latest one of that book on that day.
+    val finishedRows =
+      shelf?.finished.orEmpty().mapNotNull { book -> status.recent.firstOrNull { it.type == EntryType.SESSION && it.day == book.finished && it.track?.let(Books::key) == Books.key(book.title) }?.id }.toSet()
     itemsIndexed(recent, key = { _, entry -> entry.id }) { index, entry ->
       // The first rows arrive with the RECENT heading; animateItem doesn't animate a list's first items.
       Column(
@@ -257,7 +303,9 @@ fun HabitDetailScreen(
           study,
           // A session opens in the log form; a freeze has nothing to edit, so it only offers removal.
           onClick = { if (entry.type == EntryType.FREEZE) removingFreeze = entry.id else onEditEntry(entry.id) },
-          topic = entry.topicId?.let { viewModel.curriculum.byId[it]?.title ?: it },
+          topic = if (shelf != null) entry.track else entry.topicId?.let { viewModel.curriculum.byId[it]?.title ?: it },
+          book = shelf != null,
+          finished = entry.id in finishedRows,
           onKeepGoing = if (entry.id == keepGoingRow) ({ viewModel.keepGoing(keepGoing) }) else null,
           last = entry == recent.last(),
         )
@@ -265,9 +313,10 @@ fun HabitDetailScreen(
     }
   }
   removingFreeze?.let { id ->
-    val day = status.recent.firstOrNull { it.id == id }?.day
+    val freeze = status.recent.firstOrNull { it.id == id }
     // Did it after all (past midnight, say): log the session and it replaces the freeze. Or take the
-    // freeze back and the day is missed again.
+    // freeze back and the day is missed again (with an undo). Cancel leaves it as it is.
+    // Buttons, start to end: the destructive one apart at the start, then Cancel, then the main one.
     AlertDialog(
       onDismissRequest = { removingFreeze = null },
       title = { Text("This day is frozen") },
@@ -276,9 +325,9 @@ fun HabitDetailScreen(
         TextButton(
           onClick = {
             removingFreeze = null
-            day?.let(onLogOnDay)
+            freeze?.day?.let(onLogOnDay)
           },
-          enabled = day != null,
+          enabled = freeze != null,
         ) {
           Text("Log a session")
         }
@@ -287,11 +336,13 @@ fun HabitDetailScreen(
         TextButton(
           onClick = {
             removingFreeze = null
-            viewModel.deleteEntry(id)
-          }
+            freeze?.let { entry -> viewModel.removeFreeze(entry) { onUndoable("Freeze removed") { viewModel.restoreFreeze(entry) } } }
+          },
+          enabled = freeze != null,
         ) {
           Text("Remove freeze")
         }
+        TextButton(onClick = { removingFreeze = null }) { Text("Cancel") }
       },
     )
   }
@@ -308,8 +359,8 @@ private fun StreakBlock(status: HabitStatus, commit: CommitPlayback, onFreezeYes
   val shown = if (commit.rolled) stats.streak else commit.commit?.previousStreak ?: stats.streak
   val numberColor by animateColorAsState(if (shown > 0) colors.primary else colors.onSurfaceVariant, tween(Motion.LONG, easing = Motion.EaseUi), label = "streak")
   Column(modifier) {
-    // The caption's last line sits on the number's baseline.
-    Row {
+    // The caption's last line sits on the number's baseline. Number and caption read as one value.
+    Row(Modifier.clearAndSetSemantics { contentDescription = Descriptions.streak(shown) }) {
       RollingNumber(shown, NumeralsDisplay, numberColor, Modifier.alignBy(LastBaseline))
       Spacer(Modifier.width(12.dp))
       Column(Modifier.alignBy(LastBaseline)) {
@@ -318,7 +369,7 @@ private fun StreakBlock(status: HabitStatus, commit: CommitPlayback, onFreezeYes
       }
     }
     Spacer(Modifier.height(14.dp))
-    WeekStrip(status.cells, status.today, cellSize = 28.dp, gap = 8.dp, initials = true, commit = commit)
+    WeekStrip(status.cells, status.today, cellSize = 28.dp, gap = 8.dp, initials = true, commit = commit, daysOff = status.summary.daysOff)
     // No running commentary under the week (the squares say it): only a milestone, on its day.
     val milestone = if (commit.settled && status.doneToday) Milestones.line(stats.streak) else null
     if (milestone != null) {
@@ -327,10 +378,11 @@ private fun StreakBlock(status: HabitStatus, commit: CommitPlayback, onFreezeYes
     }
     if (status.summary.yesterdayEmpty) Spacer(Modifier.height(12.dp))
     // Yesterday slipped through: log it if it was done after all (finished past midnight), or use
-    // the week's freeze while it's free. This is the one way to log for yesterday.
+    // the week's freeze while it's free. This is the one way to log for yesterday. A day off needs no
+    // saving, only a way to log a session done on it.
     if (status.summary.yesterdayEmpty) {
       Row(Modifier.fillMaxWidth()) {
-        Text("Missed yesterday.", style = MaterialTheme.typography.bodyMedium, color = colors.primary, modifier = Modifier.weight(1f).alignByBaseline())
+        Text(if (status.summary.yesterdayOff) "Did it yesterday?" else "Missed yesterday.", style = MaterialTheme.typography.bodyMedium, color = colors.primary, modifier = Modifier.weight(1f).alignByBaseline())
         TextAction("Log it", onClick = onLogYesterday, modifier = Modifier.alignByBaseline())
         if (status.summary.canFreezeYesterday) {
           Spacer(Modifier.width(20.dp))
@@ -346,35 +398,90 @@ private fun StreakBlock(status: HabitStatus, commit: CommitPlayback, onFreezeYes
 @Composable
 private fun TodaysPractice(status: HabitStatus, practice: Practice, onLog: () -> Unit, onStart: ((Int) -> Unit)?, modifier: Modifier = Modifier) {
   DayCard(status.doneToday, modifier) {
-    CardLabel(listOf(if (status.doneToday) "DONE TODAY" else "TODAY", "PRACTICE"), accent = if (status.doneToday) "DONE TODAY" else "PRACTICE")
+    if (status.doneToday) CardLabel(state = "DONE TODAY", trail = listOf("PRACTICE")) else CardLabel(lead = listOf("TODAY"), state = "PRACTICE")
     Text(practice.title, style = MaterialTheme.typography.headlineSmall)
     NumberedSteps(practice.steps, startDelay = 560L)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
       LogButton(status.doneToday, onLog)
       OpenLinkedAppButton(status.habit.linkedPackage)
       if (onStart != null && !status.doneToday) {
         val minutes = suggestedMinutes(status)
-        TextButton(onClick = { onStart(minutes) }) { Text("Start $minutes min") }
+        // A text action after the buttons, set off by the same 20dp as other actions on one line.
+        TextAction("Start $minutes min", onClick = { onStart(minutes) }, modifier = Modifier.padding(start = 12.dp))
       }
     }
   }
 }
 
-/** A card's mono label: muted, with the one part that says the state in the accent (same as Home). */
+/**
+ * Reading's counterpart to today's topic: the book on the go, its author, and one line about where it
+ * stands (read yesterday, put down for days, just finished, none yet).
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CardLabel(parts: List<String>, accent: String?) {
-  val colors = MaterialTheme.colorScheme
-  Text(
-    buildAnnotatedString {
-      parts.forEachIndexed { index, part ->
-        if (index > 0) append(" · ")
-        if (part == accent) withStyle(SpanStyle(color = colors.primary)) { append(part) } else append(part)
+private fun TodaysBook(status: HabitStatus, book: BookDay, onLog: () -> Unit, onStart: ((Int) -> Unit)?, modifier: Modifier = Modifier) {
+  DayCard(status.doneToday, modifier) {
+    when {
+      status.doneToday -> CardLabel(state = "DONE TODAY", trail = listOf("BOOK"))
+      book.situation == BookSituation.JUST_FINISHED -> CardLabel(lead = listOf("BOOK"), state = "FINISHED")
+      else -> CardLabel(lead = listOf("TODAY"), state = "BOOK")
+    }
+    // Title and author read as one block: the author tucked under the title, not a card gap away.
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+      Text(book.title ?: "No book yet", style = MaterialTheme.typography.headlineSmall)
+      book.author?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+    Text(book.line, style = MaterialTheme.typography.bodyLarge)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+      LogButton(status.doneToday, onLog)
+      OpenLinkedAppButton(status.habit.linkedPackage)
+      if (onStart != null && !status.doneToday) {
+        val minutes = suggestedMinutes(status)
+        TextAction("Start $minutes min", onClick = { onStart(minutes) }, modifier = Modifier.padding(start = 12.dp))
       }
-    },
-    style = MaterialTheme.typography.labelMedium,
-    color = colors.onSurfaceVariant,
-  )
+    }
+  }
 }
+
+/** The read list: the book on the go (with a way to call it finished), then every book finished, newest first. */
+@Composable
+private fun BookList(shelf: Shelf, onFinish: (BookRead) -> Unit, modifier: Modifier = Modifier) {
+  val muted = MaterialTheme.colorScheme.onSurfaceVariant
+  Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    SectionLabel("Books")
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+      shelf.current?.let { book ->
+        Column {
+          Row(Modifier.fillMaxWidth()) {
+            Text(book.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).alignByBaseline())
+            TextAction("Mark as finished", onClick = { onFinish(book) }, vertical = 0.dp, modifier = Modifier.padding(start = 16.dp).alignByBaseline())
+          }
+          Text(
+            bookFacts(book.author, book.started?.let { "since ${it.format(DAY_FORMAT)}" }, sessionCount(book.sessions), book.minutes.takeIf { it > 0 }?.let(::formatDuration)),
+            style = MaterialTheme.typography.bodyMedium,
+            color = muted,
+          )
+        }
+      }
+      shelf.finished.forEach { book ->
+        Column {
+          Text(book.title, style = MaterialTheme.typography.titleMedium)
+          Text(
+            bookFacts(book.author, book.finished?.let { "finished ${it.format(DAY_FORMAT)}" }, book.minutes.takeIf { it > 0 }?.let(::formatDuration)),
+            style = MaterialTheme.typography.bodyMedium,
+            color = muted,
+          )
+        }
+      }
+    }
+  }
+}
+
+private fun sessionCount(sessions: Int): String = if (sessions == 1) "1 session" else "$sessions sessions"
+
+/** "Author · since Mon 28 Sep · 3 sessions": the author as written, otherwise the line starts with a capital. */
+private fun bookFacts(author: String?, vararg facts: String?): String =
+  (listOfNotNull(author) + listOfNotNull(*facts).mapIndexed { i, fact -> if (i == 0 && author == null) fact.replaceFirstChar { it.uppercase() } else fact }).joinToString(" · ")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -390,12 +497,17 @@ private fun TodaysTopic(
   modifier: Modifier = Modifier,
   /** The session running on this habit, if any, with the clock to read it by. */
   session: FocusSession? = null,
-  now: Long = 0,
+  /** The session clock; read through derived state, so the card changes with the phase, not every second. */
+  now: () -> Long = { 0L },
   onEndSession: () -> Unit = {},
   /** Log for a finished session: its minutes and day. */
   onLogSession: (Int, Long) -> Unit = { _, _ -> },
 ) {
   val haptics = LocalHapticFeedback.current
+  // The session's state changes a few times a session, not every second: derived, not read directly.
+  val phaseNow by remember(session, now) { derivedStateOf { session?.phase(now()) } }
+  val endsNow by remember(session, now) { derivedStateOf { session?.let { endsAtClock(it, now()) } } }
+  val minutesNow by remember(session, now) { derivedStateOf { session?.minutesToLog(now()) } }
   // The topic shown when the page opened: its questions follow the card in. After "I know this" the
   // next topic's questions come in right behind it instead.
   val firstTopic = rememberSaveable { status.pick?.topic?.id.orEmpty() }
@@ -413,7 +525,7 @@ private fun TodaysTopic(
     ) { pick ->
       Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (pick == null) {
-          CardLabel(listOf("CURRICULUM COMPLETE"), accent = null)
+          CardLabel(lead = listOf("CURRICULUM COMPLETE"))
           Text("Nothing left to pick. Time to add topics.", style = MaterialTheme.typography.bodyLarge)
           TextAction("See the curriculum", onClick = onCurriculum)
           return@Column
@@ -424,7 +536,7 @@ private fun TodaysTopic(
         // Reviews waiting are the reason to open it, so it says how many.
         val due = remember(status.topicMarks, status.today) { TopicPicker.dueReviews(curriculum, status.topicMarks.values.toList(), status.today).size }
         Row(Modifier.fillMaxWidth()) {
-          Box(Modifier.weight(1f).alignByBaseline()) { CardLabel(listOfNotNull("TODAY".takeIf { !status.doneToday }, state, area), accent = state) }
+          Box(Modifier.weight(1f).alignByBaseline()) { CardLabel(lead = listOfNotNull("TODAY".takeIf { !status.doneToday }), state = state, trail = listOf(area)) }
           TextAction(if (due > 0) "$due due" else "Curriculum", onClick = onCurriculum, vertical = 4.dp, modifier = Modifier.alignByBaseline())
         }
         Text(pick.topic.title, style = MaterialTheme.typography.headlineSmall)
@@ -447,40 +559,42 @@ private fun TodaysTopic(
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
           // One tap, 30 minutes. The page stays here (it's where the scope is checked); the planet on
           // Home is the timer, and the countdown is also in the notification and the status bar.
-          val sessionPhase = session?.phase(now)
+          val sessionPhase = phaseNow
+          val ends = endsNow
+          val minutesToLog = minutesNow
           when {
-            sessionPhase == SessionPhase.RUNNING || sessionPhase == SessionPhase.PAUSED -> {
+            session != null && (sessionPhase == SessionPhase.RUNNING || sessionPhase == SessionPhase.PAUSED) -> {
               Text(
-                if (sessionPhase == SessionPhase.PAUSED) "IN SESSION · PAUSED" else "IN SESSION · ENDS ${endsAtClock(session, now)}",
+                if (sessionPhase == SessionPhase.PAUSED) "IN SESSION · PAUSED" else "IN SESSION · ENDS $ends",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
               )
               TextAction("End", onClick = onEndSession, modifier = Modifier.padding(start = 12.dp))
             }
-            sessionPhase == SessionPhase.FINISHED && session.minutesToLog(now) != null -> {
-              val minutes = session.minutesToLog(now)!!
-              Button(onClick = { onLogSession(minutes, session.day.toEpochDay()) }, shape = MaterialTheme.shapes.medium) { Text("Log $minutes min") }
+            session != null && sessionPhase == SessionPhase.FINISHED && minutesToLog != null -> {
+              Button(onClick = { onLogSession(minutesToLog, session.day.toEpochDay()) }, shape = MaterialTheme.shapes.medium) { Text("Log $minutesToLog min") }
             }
             else -> {
               LogButton(status.doneToday, onLog)
               if (onStart != null && !status.doneToday) {
                 val minutes = suggestedMinutes(status)
-                TextButton(onClick = { onStart(minutes) }) { Text("Start $minutes min") }
+                TextAction("Start $minutes min", onClick = { onStart(minutes) }, modifier = Modifier.padding(start = 12.dp))
               }
             }
           }
-          // Not once today is logged: it would swap out the topic just studied.
+          // Not once today is logged: it would swap out the topic just studied. Text actions, set off
+          // from each other by 20dp like other actions on one line.
           if (!status.doneToday) {
-            TextButton(
+            TextAction(
+              "I know this",
               onClick = {
                 haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)
                 onKnown(pick.topic.id)
-              }
-            ) {
-              Text("I know this")
-            }
+              },
+              modifier = Modifier.padding(start = 12.dp),
+            )
           }
-          if (status.focused && !status.doneToday) TextButton(onClick = { onKeepGoing(null) }) { Text("Back to today's topic") }
+          if (status.focused && !status.doneToday) TextAction("Back to today's topic", onClick = { onKeepGoing(null) }, modifier = Modifier.padding(start = 12.dp))
         }
       }
     }
@@ -507,7 +621,7 @@ private fun YearHeatmap(status: HabitStatus, modifier: Modifier = Modifier) {
       val weeks = Heatmap.visibleWeeks(status.today, status.since, minimum = MIN_WEEKS, maximum = YEAR_WEEKS)
       val cell = ((available + HEATMAP_GAP) / weeks - HEATMAP_GAP).coerceIn(14.dp, 30.dp)
       Row(Modifier.horizontalScroll(scroll, reverseScrolling = true).padding(horizontal = Gutter)) {
-        HeatmapGrid(Heatmap.weeks(status.today, weeks), status.cells, status.today, cellSize = cell, gap = HEATMAP_GAP)
+        HeatmapGrid(Heatmap.weeks(status.today, weeks), status.cells, status.today, cellSize = cell, gap = HEATMAP_GAP, daysOff = status.summary.daysOff)
       }
     }
     HeatmapLegend(Modifier.gutter().padding(top = 8.dp))
@@ -549,14 +663,20 @@ private fun EntryRow(
   onClick: () -> Unit,
   modifier: Modifier = Modifier,
   onKeepGoing: (() -> Unit)? = null,
+  /** A reading habit: [topic] is the book, and the author leads the facts. */
+  book: Boolean = false,
+  /** The session the book was finished with. */
+  finished: Boolean = false,
 ) {
   val frozen = entry.type == EntryType.FREEZE
   val facts =
-    listOfNotNull(
-      entry.score?.takeIf { study }?.let { "$it/5" },
-      entry.minutes?.let { formatMinutes(it) },
-      listOfNotNull(entry.track, entry.module).joinToString(" · ").ifEmpty { null },
-    )
+    if (book) listOfNotNull(entry.module, entry.minutes?.let { formatMinutes(it) })
+    else
+      listOfNotNull(
+        entry.score?.takeIf { study }?.let { "$it/5" },
+        entry.minutes?.let { formatMinutes(it) },
+        listOfNotNull(entry.track, entry.module).joinToString(" · ").ifEmpty { null },
+      )
   val accent = MaterialTheme.colorScheme.primary
   val rail = MaterialTheme.colorScheme.outlineVariant
   // The date heads the entry, so it's sized to sit with the body text under it.
@@ -590,14 +710,18 @@ private fun EntryRow(
           modifier = Modifier.weight(1f).alignByBaseline().onGloballyPositioned { dateTop = it.positionInRoot().y },
         )
         if (onKeepGoing != null) {
-          // A text action with no button box: it doesn't make the date line taller than the date.
+          // A text action with no button box: it doesn't make the date line taller than the date. Its
+          // touch area still grows to 48dp, and inside it a tap is the action's, not the row's.
           TextAction("Keep going today", onClick = onKeepGoing, modifier = Modifier.alignByBaseline(), vertical = 0.dp)
         }
+        // A state, so in the accent, on the date's line.
+        if (finished) Text("FINISHED", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.alignByBaseline())
       }
       // A study session leads with what it was about; the numbers follow.
       if (topic != null) {
-        // The same face and accent as the actions: the topic reads as the headline of the session.
-        Text(topic, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        // The topic reads as the headline of the session: the strongest face in the row, in ink (the
+        // accent is for state and actions).
+        Text(topic, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
         if (facts.isNotEmpty()) Text(facts.joinToString(" · "), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
       } else {
         Text(if (frozen) "Frozen" else facts.joinToString(" · ").ifEmpty { "Done" }, style = MaterialTheme.typography.bodyLarge, color = if (frozen) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified)

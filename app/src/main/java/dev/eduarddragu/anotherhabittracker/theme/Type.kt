@@ -27,7 +27,7 @@ private val Cormorant =
     variable(R.font.cormorant_garamond_italic, FontWeight.SemiBold, FontStyle.Italic),
   )
 private val DmSans = FontFamily(variable(R.font.dm_sans, FontWeight.Normal), variable(R.font.dm_sans, FontWeight.Medium), variable(R.font.dm_sans, FontWeight.SemiBold))
-private val GeistMono = FontFamily(variable(R.font.geist_mono, FontWeight.Normal), variable(R.font.geist_mono, FontWeight.Medium))
+private val GeistMono = FontFamily(variable(R.font.geist_mono, FontWeight.Medium))
 
 // Cormorant has a small x-height, so display sizes run larger than Material's defaults. Its default
 // figures are old-style (a 0 reads as an "o", a 1 as an "I"), so every serif style asks for lining ones.

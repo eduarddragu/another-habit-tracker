@@ -3,7 +3,6 @@ package dev.eduarddragu.anotherhabittracker.ui.log
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -30,6 +29,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -56,13 +57,19 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.eduarddragu.anotherhabittracker.HabitApp
 import dev.eduarddragu.anotherhabittracker.data.Entry
 import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
+import dev.eduarddragu.anotherhabittracker.domain.Books
 import dev.eduarddragu.anotherhabittracker.domain.HabitKind
+import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
 import dev.eduarddragu.anotherhabittracker.domain.Topic
 import dev.eduarddragu.anotherhabittracker.domain.TopicPicker
 import dev.eduarddragu.anotherhabittracker.reminders.Notifications
@@ -81,14 +88,16 @@ import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
 import dev.eduarddragu.anotherhabittracker.ui.components.gutter
 import dev.eduarddragu.anotherhabittracker.ui.components.pressScale
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
+import dev.eduarddragu.anotherhabittracker.ui.components.touchTarget
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 class LogViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app, habitId) {
-  fun save(entry: Entry, onDone: () -> Unit) = once {
+  /** [finished]: for a reading habit, whether the book was finished with this session; null for other habits. */
+  fun save(entry: Entry, finished: Boolean? = null, onDone: () -> Unit) = once {
     val previousStreak = status.value?.streak ?: 0
-    app.repository.logSession(entry)
+    if (finished != null) app.repository.saveReading(entry, finished) else app.repository.logSession(entry)
     // The session this log is for is over: the planet goes back to being a planet.
     // Only the finished session this log is for: logging yesterday mid-session keeps the timer.
     app.sessions.session.value?.takeIf { it.habitId == habitId && it.finishedAt != null && it.day == entry.day }?.let { Sessions.clear(app) }
@@ -107,33 +116,38 @@ class LogViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app, habitId) 
   suspend fun entry(id: Long): Entry? = app.repository.entry(id)
 
   /** A logged session corrected: same id and day, new values. No commit to play, it's not new. */
-  fun update(entry: Entry, onDone: () -> Unit) = once {
-    app.repository.updateEntry(entry)
+  fun update(entry: Entry, finished: Boolean? = null, onDone: () -> Unit) = once {
+    if (finished != null) app.repository.saveReading(entry, finished) else app.repository.updateEntry(entry)
     onDone()
   }
+
+  /** Whether the book of a session being edited was finished with it. */
+  suspend fun finishedOn(day: LocalDate, title: String): Boolean = app.repository.finishedOn(habitId, day, title)
 
   fun delete(id: Long, onDone: () -> Unit) = once {
-    app.repository.deleteEntry(id)
+    app.repository.deleteSession(id)
     onDone()
   }
 
-  fun freezeToday(onDone: (Boolean) -> Unit) = once {
+  /**
+   * [day]: the form's day, fixed when it opened, so a form left open across midnight freezes that day.
+   * [onDone] gets the freeze's id (null if refused), for the undo.
+   */
+  fun freezeToday(day: LocalDate, onDone: (Long?) -> Unit) = once {
     val previousStreak = status.value?.streak ?: 0
-    val today = app.repository.today()
-    val ok = app.repository.freeze(habitId, today)
-    if (ok) {
+    val id = app.repository.freeze(habitId, day)
+    if (id != null) {
       Notifications.dismiss(app, habitId)
-      Commits.post(Commit(habitId, today, previousStreak, frozen = true))
+      Commits.post(Commit(habitId, day, previousStreak))
     }
-    onDone(ok)
+    onDone(id)
   }
+
+  /** Undo of [freezeToday]: in the app's scope, since the form is gone by then. */
+  fun unfreeze(id: Long) = app.repository.undoFreeze(id)
 }
 
 private val EDIT_DAY_FORMAT = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
-
-// Minutes are optional and picked from presets only: a tap selects, a second tap clears.
-private val STUDY_MINUTES = listOf(30, 45, 60)
-private val SIMPLE_MINUTES = listOf(5, 10, 15)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -141,6 +155,8 @@ fun LogScreen(
   app: HabitApp,
   habitId: Long,
   onDone: (message: String?) -> Unit,
+  /** Closes the form with a message that has an Undo action. */
+  onDoneUndoable: (message: String, undo: () -> Unit) -> Unit,
   modifier: Modifier = Modifier,
   /** Set to correct a session already logged instead of logging a new one. */
   entryId: Long? = null,
@@ -155,6 +171,8 @@ fun LogScreen(
   val current = status ?: return
   val habit = current.habit
   val study = habit.kind == HabitKind.STUDY
+  // Reading habits name their book (track) and its author (module), and can finish it here.
+  val reading = Books.appliesTo(habit.kind, habit.name, habit.icon)
   val haptics = LocalHapticFeedback.current
 
   // The day is fixed when the form opens: left open across midnight, it still logs for the day it said.
@@ -167,8 +185,10 @@ fun LogScreen(
   var minutes by rememberSaveable { mutableStateOf(prefillMinutes) }
   var note by rememberSaveable { mutableStateOf("") }
   var extraTopics by rememberSaveable { mutableStateOf("") }
-  var track by rememberSaveable { mutableStateOf("") }
-  var module by rememberSaveable { mutableStateOf("") }
+  // A new reading session starts on the book on the go.
+  var track by rememberSaveable { mutableStateOf(current.books?.current?.title.orEmpty().takeIf { reading && !editing }.orEmpty()) }
+  var module by rememberSaveable { mutableStateOf(current.books?.current?.author.orEmpty().takeIf { reading && !editing }.orEmpty()) }
+  var finished by rememberSaveable { mutableStateOf(false) }
   var details by rememberSaveable { mutableStateOf(false) }
   // Study sessions default to today's pick.
   var topicId by rememberSaveable { mutableStateOf(current.pick?.topic?.id) }
@@ -178,6 +198,9 @@ fun LogScreen(
   var editDay by rememberSaveable { mutableStateOf<Long?>(null) }
   var editLoggedAt by rememberSaveable { mutableStateOf<Long?>(null) }
   var loaded by rememberSaveable { mutableStateOf(!editing) }
+  // The note as it was when the form opened (empty for a new session): back asks before losing a
+  // different one.
+  var savedNote by rememberSaveable { mutableStateOf("") }
   LaunchedEffect(entryId) {
     if (loaded || entryId == null) return@LaunchedEffect
     val entry = viewModel.entry(entryId) ?: return@LaunchedEffect
@@ -186,15 +209,18 @@ fun LogScreen(
     score = entry.score
     minutes = entry.minutes
     note = entry.note
+    savedNote = entry.note
     extraTopics = entry.extraTopics
     track = entry.track.orEmpty()
     module = entry.module.orEmpty()
     topicId = entry.topicId
     topicChosen = true
+    finished = reading && entry.track != null && viewModel.finishedOn(entry.day, entry.track)
     details = entry.extraTopics.isNotBlank() || entry.track != null || entry.module != null
     loaded = true
   }
   var confirmingDelete by rememberSaveable { mutableStateOf(false) }
+  var confirmingBack by rememberSaveable { mutableStateOf(false) }
   // Another day's session gets that day's topic; Save waits for it, and a topic picked by hand
   // meanwhile wins.
   var dayTopicLoaded by rememberSaveable { mutableStateOf(!study || editing || fixedDay == null) }
@@ -205,6 +231,9 @@ fun LogScreen(
     dayTopicLoaded = true
   }
   var pickingTopic by rememberSaveable { mutableStateOf(false) }
+
+  // Only a note is worth asking about: scores and minutes are one tap to pick again.
+  BackHandler(enabled = loaded && note.isNotBlank() && note.trim() != savedNote.trim() && !busy) { confirmingBack = true }
 
   val needsScore = study && score == null
   val canSave = !busy && !needsScore && dayTopicLoaded
@@ -225,13 +254,15 @@ fun LogScreen(
         module = module.trim().ifEmpty { null },
         topicId = if (study) topicId else null,
       )
+    // Only a named book can be finished.
+    val finishedBook = if (reading) finished && entry.track != null else null
     if (editing) {
       val original = entryId ?: return
       val day = editDay?.let(LocalDate::ofEpochDay) ?: return
-      viewModel.update(entry.copy(id = original, day = day, loggedAt = editLoggedAt ?: entry.loggedAt)) { onDone("Session updated") }
+      viewModel.update(entry.copy(id = original, day = day, loggedAt = editLoggedAt ?: entry.loggedAt), finishedBook) { onDone("Session updated") }
       return
     }
-    viewModel.save(entry) {
+    viewModel.save(entry, finishedBook) {
       onDone(
         when {
           day == today -> null
@@ -293,11 +324,48 @@ fun LogScreen(
         }
       }
 
+      if (reading) {
+        // The book leads, prefilled with the one on the go: most days nothing to type. The author
+        // comes in once there is a title, and so does finishing it.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Text("Which book?", style = MaterialTheme.typography.titleMedium)
+          // The author follows the title while it's one the shelf filled in: a known book brings its
+          // own, another title clears it. One typed by hand stays.
+          val shelf = current.books
+          fun authorOf(title: String) = shelf?.let { listOfNotNull(it.current) + it.finished }?.firstOrNull { Books.key(it.title) == Books.key(title) }?.author.orEmpty()
+          OutlinedTextField(
+            track,
+            { title ->
+              if (module == authorOf(track)) module = authorOf(title)
+              track = title
+            },
+            label = { Text("Book") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
+          AnimatedVisibility(
+            visible = track.isNotBlank(),
+            enter = expandVertically(tween(280, easing = Motion.EaseUi), expandFrom = Alignment.Top) + fadeIn(tween(160, delayMillis = 60)),
+            exit = shrinkVertically(tween(Motion.SHORT, easing = Motion.EaseUi)) + fadeOut(tween(100)),
+          ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+              OutlinedTextField(module, { module = it }, label = { Text("Author (optional)") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
+              FilterChip(
+                selected = finished,
+                onClick = {
+                  haptics.performHapticFeedback(if (finished) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
+                  finished = !finished
+                },
+                label = { Text("Finished it") },
+              )
+            }
+          }
+        }
+      }
+
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("How long?", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          // Minutes are optional and picked from presets only: a tap selects, a second tap clears.
           // A session's real length stays as it was, before the presets, rather than rounded into one.
-          val presets = if (study) STUDY_MINUTES else SIMPLE_MINUTES
+          val presets = SessionTimer.presets(habit.kind, habit.sessionMinutes)
           (listOfNotNull(prefillMinutes?.takeIf { it !in presets }) + presets).forEach { preset ->
             FilterChip(
               selected = minutes == preset,
@@ -316,8 +384,12 @@ fun LogScreen(
       if (study) {
         // Optional study details stay folded until asked for.
         Column {
+          // The row is shorter than a touch target; its touch area grows without moving it.
           Row(
-            Modifier.fillMaxWidth().clickable { details = !details }.padding(vertical = 8.dp),
+            Modifier.fillMaxWidth()
+              .semantics { stateDescription = if (details) "Expanded" else "Collapsed" }
+              .touchTarget(Modifier.clickable(onClickLabel = if (details) "Hide details" else "Show details") { details = !details })
+              .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
           ) {
             Text("Add details", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -338,7 +410,11 @@ fun LogScreen(
       }
 
       if (current.canFreezeToday && !editing && fixedDay == null) {
-        TextAction("Freeze today instead (once a week)", onClick = { viewModel.freezeToday { ok -> onDone(if (ok) null else "Freeze not available") } }, enabled = !busy)
+        TextAction(
+          "Freeze today instead (once a week)",
+          onClick = { viewModel.freezeToday(LocalDate.ofEpochDay(openedOn)) { id -> if (id != null) onDoneUndoable("Today is frozen") { viewModel.unfreeze(id) } else onDone("Freeze not available") } },
+          enabled = !busy,
+        )
       }
     }
 
@@ -352,7 +428,8 @@ fun LogScreen(
         Text("Pick a score to save", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
       }
       // The button reads back what will be saved.
-      val summary = listOfNotNull(if (editing) "Save changes" else "Save", score?.takeIf { study }?.let { "$it/5" }, minutes?.let { "$it min" }).joinToString(" · ")
+      val summary =
+        listOfNotNull(if (editing) "Save changes" else "Save", score?.takeIf { study }?.let { "$it/5" }, minutes?.let { "$it min" }, "finished".takeIf { reading && finished && track.isNotBlank() }).joinToString(" · ")
       Button(shape = MaterialTheme.shapes.medium, enabled = canSave, modifier = Modifier.fillMaxWidth(), onClick = ::save) { Text(summary) }
     }
   }
@@ -361,7 +438,7 @@ fun LogScreen(
     AlertDialog(
       onDismissRequest = { confirmingDelete = false },
       title = { Text("Delete this session?") },
-      text = { Text("It comes off the history, the streak and the topic's schedule.") },
+      text = { Text(if (reading) "It comes off the history, the streak and the book's time." else "It comes off the history, the streak and the topic's schedule.") },
       confirmButton = {
         TextButton(
           onClick = {
@@ -373,6 +450,25 @@ fun LogScreen(
         }
       },
       dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } },
+    )
+  }
+
+  if (confirmingBack) {
+    AlertDialog(
+      onDismissRequest = { confirmingBack = false },
+      title = { Text("Discard the note?") },
+      text = { Text("It isn't saved yet.") },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            confirmingBack = false
+            onDone(null)
+          }
+        ) {
+          Text("Discard")
+        }
+      },
+      dismissButton = { TextButton(onClick = { confirmingBack = false }) { Text("Keep editing") } },
     )
   }
 
@@ -396,7 +492,7 @@ fun LogScreen(
 @Composable
 private fun ScoreSquares(selected: Int?, onPick: (Int) -> Unit) {
   val colors = MaterialTheme.colorScheme
-  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+  Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
     (1..5).forEach { value ->
       val chosen = selected == value
       // Score to heatmap level: 1-2 -> 1, 3 -> 2, 4 -> 3, 5 -> 4.
@@ -416,10 +512,12 @@ private fun ScoreSquares(selected: Int?, onPick: (Int) -> Unit) {
           }
           .clip(MaterialTheme.shapes.medium)
           .drawBehind { drawRect(fill) }
-          .selectable(chosen, interactionSource = interaction, indication = null, role = Role.RadioButton) { onPick(value) },
+          .selectable(chosen, interactionSource = interaction, indication = null, role = Role.RadioButton) { onPick(value) }
+          // "1 of 5, didn't get it": the ends say what they mean, as the labels under the row do.
+          .semantics { contentDescription = listOfNotNull("$value of 5", TopicPicker.scoreLabel(value).lowercase().takeIf { value == 1 || value == 5 }).joinToString(", ") },
         contentAlignment = Alignment.Center,
       ) {
-        Text(value.toString(), style = NumeralsSmall, color = if (strong) colors.onPrimary else colors.onSurface)
+        Text(value.toString(), style = NumeralsSmall, color = if (strong) colors.onPrimary else colors.onSurface, modifier = Modifier.clearAndSetSemantics {})
       }
     }
   }

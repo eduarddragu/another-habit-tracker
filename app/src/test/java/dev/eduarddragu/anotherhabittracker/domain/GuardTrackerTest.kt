@@ -34,7 +34,7 @@ class GuardTrackerTest {
     val actions = tracker.onEvaluated(tracker.onFront(ig).evaluation(), true, budget, hour)
     assertEquals(listOf(GuardAction.Schedule(10 * 60_000L)), actions)
     clock += 4 * 60_000L
-    assertTrue(GuardAction.Use(4 * 60_000L) in tracker.onFront("com.example.maps"))
+    assertTrue(GuardAction.Use(day, 4 * 60_000L) in tracker.onFront("com.example.maps"))
     assertFalse(tracker.counting)
   }
 
@@ -71,7 +71,7 @@ class GuardTrackerTest {
   fun screenOffStopsTheCountAndUnlockingLooksAgain() {
     tracker.onEvaluated(tracker.onFront(ig).evaluation(), true, ScrollBudget(day).grant(), hour)
     clock += 60_000L
-    assertTrue(GuardAction.Use(60_000L) in tracker.onScreenOff())
+    assertTrue(GuardAction.Use(day, 60_000L) in tracker.onScreenOff())
     clock += 8 * hour
     val back = tracker.onScreenOn()
     assertTrue(back.none { it is GuardAction.Use })
@@ -89,6 +89,23 @@ class GuardTrackerTest {
   fun theTimerNeverRunsPastMidnight() {
     val actions = tracker.onEvaluated(tracker.onFront(ig).evaluation(), true, ScrollBudget(day).grant(), millisToMidnight = 60_000L)
     assertEquals(listOf(GuardAction.Schedule(62_000L)), actions)
+  }
+
+  @Test
+  fun timeAcrossMidnightIsSplitBetweenTheDays() {
+    tracker.onEvaluated(tracker.onFront(ig).evaluation(), true, ScrollBudget(day).grant(), millisToMidnight = 60_000L)
+    // The timer fires 2 s past midnight.
+    clock += 62_000L
+    val actions = tracker.onTimeUp()
+    assertEquals(listOf(GuardAction.Use(day, 60_000L), GuardAction.Use(day.plusDays(1), 2_000L)), actions.filterIsInstance<GuardAction.Use>())
+    actions.evaluation()
+  }
+
+  @Test
+  fun leavingBeforeMidnightBooksEverythingToTheDay() {
+    tracker.onEvaluated(tracker.onFront(ig).evaluation(), true, ScrollBudget(day).grant(), millisToMidnight = 60_000L)
+    clock += 60_000L
+    assertEquals(listOf(GuardAction.Use(day, 60_000L)), tracker.onFront("launcher").filterIsInstance<GuardAction.Use>())
   }
 
   @Test

@@ -51,12 +51,11 @@ class HeatmapStatsTest {
         Session(today, 4, 30),
         Session(today, 2, 10),
         Session(today.minusDays(1), 5, null),
-        Session(today.minusDays(3), null, 20), // previous week (Sunday)
+        Session(today.minusDays(3), null, 20),
         Session(today.minusDays(40), 3, 60), // outside the 30-day window
       )
     val stats = Stats.of(sessions, emptySet(), today)
     assertEquals(2, stats.streak)
-    assertEquals(2, stats.daysThisWeek)
     assertEquals(3, stats.daysLast30)
     assertEquals(60, stats.minutesLast30)
     assertEquals(11.0 / 3, stats.averageScoreLast30!!, 1e-9)

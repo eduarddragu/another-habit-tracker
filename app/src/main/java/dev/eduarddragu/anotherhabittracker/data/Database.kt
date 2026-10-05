@@ -2,6 +2,8 @@ package dev.eduarddragu.anotherhabittracker.data
 
 import android.content.Context
 import androidx.room.AutoMigration
+import androidx.room.migration.AutoMigrationSpec
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -37,6 +39,8 @@ data class Habit(
   val icon: String? = null,
   /** Saturday and Sunday's reminder times, same format; null means the same as weekdays. Added in schema version 4. */
   val weekendReminderTimes: String? = null,
+  /** One tap starts a session this long, and the log form's presets are built around it; null means the kind's default (SessionTimer). Added in schema version 5. */
+  val sessionMinutes: Int? = null,
 )
 
 /** A stretch of days off (see domain TimeOff); [end] null while open. Added in schema version 4. */
@@ -80,8 +84,12 @@ data class Entry(
   val note: String = "",
   /** Free text: other topics studied in the same session. */
   val extraTopics: String = "",
-  /** Course, certification or book the session belongs to, if any. */
+  /**
+   * Course, certification or book the session belongs to, if any. For a reading habit (see domain
+   * Books) it is the book's title, on its sessions and on its FINISHED mark.
+   */
   val track: String? = null,
+  /** The module or chapter of [track]; for a reading habit, the book's author. */
   val module: String? = null,
   val loggedAt: Long = System.currentTimeMillis(),
   /** Curriculum topic of a study session or of a KNOWN mark. Added in schema version 2. */
@@ -160,7 +168,7 @@ interface EntryDao {
   entities = [Habit::class, Entry::class, TimeOffRow::class],
   version = DB_SCHEMA,
   exportSchema = true,
-  autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
+  autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5, spec = AddReading::class)],
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -174,3 +182,54 @@ abstract class AppDatabase : RoomDatabase() {
     fun create(context: Context): AppDatabase = Room.databaseBuilder(context, AppDatabase::class.java, "habits.db").build()
   }
 }
+
+/**
+ * Schema 5 adds a habit's own session length, and Reading with it: 20 minutes of a paper book a day,
+ * no linked app. Added once, on the phone that already has Study and Meditation; a fresh install gets
+ * it from [HabitRepository.seedIfEmpty]. Study and Meditation still on their first times move off
+ * working hours on weekdays and keep those times for the weekend; times already changed by hand stay.
+ */
+class AddReading : AutoMigrationSpec {
+  override fun onPostMigrate(db: SupportSQLiteDatabase) {
+    for ((first, habit) in listOf(STUDY_FIRST_TIMES to STUDY, MEDITATION_FIRST_TIMES to MEDITATION)) {
+      db.execSQL(
+        "UPDATE habits SET reminderTimes = ?, weekendReminderTimes = ? WHERE name = ? AND reminderTimes = ? AND weekendReminderTimes IS NULL",
+        arrayOf<Any>(habit.reminderTimes, habit.weekendReminderTimes!!, habit.name, first),
+      )
+    }
+    db.query("SELECT COUNT(*) FROM habits WHERE name = 'Reading'").use { if (it.moveToFirst() && it.getInt(0) > 0) return }
+    val position = db.query("SELECT COALESCE(MAX(position) + 1, 0) FROM habits").use { if (it.moveToFirst()) it.getInt(0) else 0 }
+    db.execSQL(
+      "INSERT INTO habits (name, kind, reminderTimes, linkedPackage, position, icon, weekendReminderTimes, sessionMinutes) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)",
+      arrayOf<Any>(READING.name, READING.kind.name, READING.reminderTimes, position, READING.icon!!, READING.weekendReminderTimes!!, READING.sessionMinutes!!),
+    )
+  }
+}
+
+// The habits as they're first set up. Weekdays stay off working hours (study from the end of the
+// workday, meditation at lunch and in the evening, reading at lunch and before bed); weekends are
+// spread out.
+private const val STUDY_FIRST_TIMES = "09:30,13:30,17:30,19:30,21:30"
+private const val MEDITATION_FIRST_TIMES = "08:00,11:00,15:00,21:45"
+
+val STUDY = Habit(name = "Study", kind = HabitKind.STUDY, reminderTimes = "17:30,19:00,20:30,21:30", weekendReminderTimes = STUDY_FIRST_TIMES, icon = HabitIcon.BOOK.name)
+
+val MEDITATION =
+  Habit(
+    name = "Meditation",
+    kind = HabitKind.SIMPLE,
+    reminderTimes = "13:00,18:30,21:45",
+    weekendReminderTimes = MEDITATION_FIRST_TIMES,
+    linkedPackage = "meditofoundation.medito",
+    icon = HabitIcon.LOTUS.name,
+  )
+
+val READING =
+  Habit(
+    name = "Reading",
+    kind = HabitKind.SIMPLE,
+    reminderTimes = "13:30,21:00,22:30",
+    weekendReminderTimes = "10:30,16:00,21:00,22:30",
+    icon = HabitIcon.BOOKMARK.name,
+    sessionMinutes = 20,
+  )

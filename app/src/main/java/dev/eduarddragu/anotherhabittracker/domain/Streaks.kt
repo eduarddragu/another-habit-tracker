@@ -19,19 +19,6 @@ object Streaks {
     }
     return count
   }
-
-  fun longest(sessions: Set<LocalDate>, freezes: Set<LocalDate>): Int {
-    var best = 0
-    var run = 0
-    var previous: LocalDate? = null
-    for (day in (sessions + freezes).sorted()) {
-      if (previous == null || previous.plusDays(1) != day) run = 0
-      if (day in sessions) run++
-      best = maxOf(best, run)
-      previous = day
-    }
-    return best
-  }
 }
 
 /** One freeze per ISO week, and only on a day without a session or another freeze. */
@@ -40,9 +27,6 @@ object Freezes {
     if (day in sessions || day in freezes) return false
     return freezes.none { isoWeek(it) == isoWeek(day) }
   }
-
-  /** The day this week's freeze went on, if it's used. */
-  fun usedThisWeek(today: LocalDate, freezes: Set<LocalDate>): LocalDate? = freezes.firstOrNull { isoWeek(it) == isoWeek(today) }
 
   /**
    * Yesterday can still be frozen after the fact: it has nothing logged, this week's freeze (of
@@ -56,13 +40,14 @@ object Freezes {
   }
 
   /**
-   * Yesterday has nothing at all (no session, no freeze) and the habit was already running then:
-   * the habit's page offers to log it (done late, past midnight) and, when the rules allow, to
-   * freeze it. Logging it is the only way to log for yesterday, so it doesn't depend on a streak.
+   * Yesterday has no session and no freeze (a day off still counts as empty) and the habit was
+   * already running then: the habit's page offers to log it (done late, past midnight) and, when the
+   * rules allow, to freeze it. Logging it is the only way to log for yesterday, so it doesn't depend
+   * on a streak. [bridges] (freezes plus days off) also show the habit was running.
    */
-  fun yesterdayEmpty(today: LocalDate, sessions: Set<LocalDate>, freezes: Set<LocalDate>): Boolean {
+  fun yesterdayEmpty(today: LocalDate, sessions: Set<LocalDate>, freezes: Set<LocalDate>, bridges: Set<LocalDate> = freezes): Boolean {
     val yesterday = today.minusDays(1)
-    return yesterday !in sessions && yesterday !in freezes && (sessions + freezes).any { it < yesterday }
+    return yesterday !in sessions && yesterday !in freezes && (sessions + bridges).any { it < yesterday }
   }
 
   private fun isoWeek(day: LocalDate) = day.get(IsoFields.WEEK_BASED_YEAR) to day.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)

@@ -8,7 +8,12 @@ enum class HabitIcon {
   SPARK,
   DROP,
   MOON,
-  DUMBBELL;
+  DUMBBELL,
+  BOOKMARK;
+
+  /** What a screen reader calls it: "Book", "Dumbbell". */
+  val label: String
+    get() = name.lowercase().replaceFirstChar { it.uppercase() }
 
   companion object {
     /** The stored choice, or a sensible default: a book for study, a lotus for anything linked to a meditation app. */

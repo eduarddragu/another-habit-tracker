@@ -20,8 +20,12 @@ local.properties
 *.p12
 keystore.properties
 signing.properties
+*.pk8
+*.pem
 
 # Personal data: exports and backups stay on the phone / Drive
 exports/
 *.aht.json
+another-habit-tracker*.json
+before-import-*.json
 .kotlin

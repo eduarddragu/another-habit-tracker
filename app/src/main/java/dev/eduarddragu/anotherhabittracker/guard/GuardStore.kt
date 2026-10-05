@@ -52,6 +52,16 @@ class GuardStore(private val context: Context) {
     updateDay(budget.day) { it.copy(usedMillis = budget.usedMillis) }
   }
 
+  /**
+   * Guarded time spent on [day]. An earlier day than the budget's (counted up to midnight, booked
+   * after a grant on the new day) only goes into the history: the budget is today's.
+   */
+  fun use(day: LocalDate, millis: Long) {
+    val current = prefs.getString(KEY_DAY, null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    if (current != null && day.isBefore(current)) updateDay(day) { it.copy(usedMillis = it.usedMillis + millis.coerceAtLeast(0)) }
+    else save(budget(day).use(millis))
+  }
+
   /** The guard stepped in (its screen came up) on [day]. */
   fun recordBlock(day: LocalDate) = updateDay(day) { it.copy(blocks = it.blocks + 1) }
 

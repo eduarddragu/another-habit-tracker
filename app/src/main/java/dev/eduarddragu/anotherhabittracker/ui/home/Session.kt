@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -17,6 +16,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import dev.eduarddragu.anotherhabittracker.ui.components.CardLabel
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,9 +31,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.animation.core.animateFloatAsState
@@ -61,20 +63,26 @@ private val DiscInk = Color(0xFF1A1714)
 private val ENDS_FORMAT = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
- * The session's clock, ticking once a second while Home is on screen (never between frames: the arc
- * moves a fraction of a dp per second). Finishes the session the moment it runs out, without waiting
- * for the alarm.
+ * The session's clock, ticking once a second while the screen is up and the session runs (never
+ * between frames: the arc moves a fraction of a dp per second). Paused or over, nothing on screen
+ * moves, so one reading is enough. Finishes the session the moment it runs out, without waiting for
+ * the alarm.
+ *
+ * Read it only where it's needed: in draw (the arc), or through derivedStateOf for what changes once
+ * a minute (the numerals, the phase). Read in composition, it recomposes the whole screen every second.
  */
 @Composable
 fun rememberSessionTick(app: HabitApp, session: FocusSession?): State<Long> {
   val lifecycle = LocalLifecycleOwner.current.lifecycle
   return produceState(app.sessions.now(), session) {
     if (session == null) return@produceState
+    value = app.sessions.now()
+    if (session.finishedAt != null || session.pausedAt != null) return@produceState
     lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
       while (true) {
         val now = app.sessions.now()
         value = now
-        if (session.finishedAt == null && session.pausedAt == null && session.remaining(now) <= 0) {
+        if (session.remaining(now) <= 0) {
           Sessions.end(app)
           return@repeatOnLifecycle
         }
@@ -98,25 +106,34 @@ fun KeepScreenOn(on: Boolean) {
   }
 }
 
-/** On the disc: minutes left (seconds in the last one), or the minutes done once it's over. */
+/**
+ * On the disc: minutes left (seconds in the last one), or the minutes done once it's over. Recomposes
+ * only when what it shows changes: once a minute, once a second in the last one.
+ */
 @Composable
-fun SessionNumerals(session: FocusSession, now: Long, modifier: Modifier = Modifier) {
-  val display = session.display(now)
+fun SessionNumerals(session: FocusSession, now: () -> Long, modifier: Modifier = Modifier) {
+  val display by remember(session, now) { derivedStateOf { session.display(now()) } }
+  val phase by remember(session, now) { derivedStateOf { session.phase(now()) } }
   val caption =
-    when (session.phase(now)) {
+    when (phase) {
       SessionPhase.PAUSED -> "PAUSED"
       SessionPhase.FINISHED -> "MIN DONE"
       SessionPhase.RUNNING -> if (display.seconds) "SEC LEFT" else "MIN LEFT"
     }
   // Paused, the number dims (the grey arc and the header say why); the caption stays dark ink, since
   // accent on butter is too faint for 10sp.
-  val dim by animateFloatAsState(if (session.phase(now) == SessionPhase.PAUSED) 0.45f else 1f, tween(Motion.LONG, easing = Motion.EaseUi), label = "dim")
-  Column(modifier.semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally) {
-    // A fixed width, drawn from the right: DM Sans has no tabular figures, so seconds would jiggle.
-    Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
-      Text(display.value.toString(), style = NumeralsDisplay, color = DiscInk.copy(alpha = dim), textAlign = TextAlign.Center)
+  val dim by animateFloatAsState(if (phase == SessionPhase.PAUSED) 0.45f else 1f, tween(Motion.LONG, easing = Motion.EaseUi), label = "dim")
+  // Part of a fixed-size graphic (the disc doesn't grow with the font size), so the numbers don't
+  // either: at 200% they would spill off the disc.
+  val density = LocalDensity.current
+  CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale = 1f)) {
+    Column(modifier.semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally) {
+      // A fixed width, drawn from the right: DM Sans has no tabular figures, so seconds would jiggle.
+      Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
+        Text(display.value.toString(), style = NumeralsDisplay, color = DiscInk.copy(alpha = dim), textAlign = TextAlign.Center)
+      }
+      Text(caption, style = MaterialTheme.typography.labelSmall, color = DiscInk.copy(alpha = 0.7f))
     }
-    Text(caption, style = MaterialTheme.typography.labelSmall, color = DiscInk.copy(alpha = 0.7f))
   }
 }
 
@@ -137,35 +154,32 @@ fun StartSession(minutes: Int, onStart: () -> Unit, modifier: Modifier = Modifie
 fun SessionCard(
   app: HabitApp,
   session: FocusSession,
-  now: Long,
+  /** The session clock; read through derived state, so the card recomposes on a change of phase, not every second. */
+  now: () -> Long,
   status: HabitStatus?,
   curriculum: Curriculum,
   onLog: (habitId: Long, minutes: Int?, day: Long) -> Unit,
   /** A tap on the card opens the habit's page, like the habit cards do. */
   onOpen: (Long) -> Unit,
+  /** Discard, once it's over: the caller takes it away and offers it back. */
+  onDiscard: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  val phase = session.phase(now)
+  val phase by remember(session, now) { derivedStateOf { session.phase(now()) } }
+  // Only read once it's over, when it no longer changes.
+  val minutesToLog by remember(session, now) { derivedStateOf { session.minutesToLog(now()) } }
   val topic = session.topicId?.let { curriculum.byId[it] }
   // Warm only for a session that counted; one too short to log stays plain.
-  DayCard(done = phase == SessionPhase.FINISHED && session.minutesToLog(now) != null, modifier = modifier.clip(MaterialTheme.shapes.large).clickable(onClickLabel = "Open ${session.habitName}") { onOpen(session.habitId) }) {
+  val counted = phase == SessionPhase.FINISHED && minutesToLog != null
+  DayCard(done = counted, modifier = modifier.clip(MaterialTheme.shapes.large).clickable(onClickLabel = "Open ${session.habitName}") { onOpen(session.habitId) }) {
     val state = when {
       phase != SessionPhase.FINISHED -> "NOW"
-      session.minutesToLog(now) != null -> "DONE"
+      counted -> "DONE"
       else -> "TOO SHORT"
     }
-    val label = listOfNotNull(status?.habit?.name?.uppercase() ?: session.habitName.uppercase(), state, topic?.area?.let { curriculum.areaById[it]?.name?.uppercase() }).joinToString(" · ")
-    Text(
-      buildAnnotatedString {
-        label.split(" · ").forEachIndexed { i, part ->
-          if (i > 0) append(" · ")
-          if (part == state) withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append(part) } else append(part)
-        }
-      },
-      style = MaterialTheme.typography.labelMedium,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Text(topic?.title ?: (status?.habit?.name ?: "Session"), style = MaterialTheme.typography.headlineSmall)
+    CardLabel(lead = listOf(status?.habit?.name?.uppercase() ?: session.habitName.uppercase()), state = state, trail = listOfNotNull(topic?.area?.let { curriculum.areaById[it]?.name?.uppercase() }))
+    // A reading session keeps its book in view, as a study one keeps its topic.
+    Text(topic?.title ?: status?.books?.current?.title ?: (status?.habit?.name ?: "Session"), style = MaterialTheme.typography.headlineSmall)
     topic?.hints?.takeIf { it.isNotEmpty() }?.let { NumberedSteps(it, startDelay = 120L) }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
       when (phase) {
@@ -180,10 +194,10 @@ fun SessionCard(
           TextAction("End", onClick = { Sessions.end(app) })
         }
         SessionPhase.FINISHED -> {
-          val minutes = session.minutesToLog(now)
+          val minutes = minutesToLog
           if (minutes != null) Button(onClick = { onLog(session.habitId, minutes, session.day.toEpochDay()) }, shape = MaterialTheme.shapes.medium) { Text("Log $minutes min") }
           TextAction("+5 min", onClick = { Sessions.extend(app) }, modifier = Modifier.padding(horizontal = 12.dp))
-          TextAction("Discard", onClick = { Sessions.clear(app) })
+          TextAction("Discard", onClick = onDiscard)
         }
       }
     }
@@ -192,19 +206,22 @@ fun SessionCard(
 
 /** Replaces the greeting while a session runs: where it stands, and one line for it. */
 @Composable
-fun SessionHeader(session: FocusSession, now: Long, modifier: Modifier = Modifier) {
-  val phase = session.phase(now)
+fun SessionHeader(session: FocusSession, now: () -> Long, modifier: Modifier = Modifier) {
+  // Both change a few times a session (a pause, the last five minutes, the end), not every second.
+  val phase by remember(session, now) { derivedStateOf { session.phase(now()) } }
+  val line by remember(session, now) { derivedStateOf { SessionTimer.line(session, now()) } }
+  val ends by remember(session, now) { derivedStateOf { endsAtClock(session, now()) } }
   Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
     val label =
       when (phase) {
-        SessionPhase.RUNNING -> "IN SESSION · ENDS ${endsAtClock(session, now)}"
+        SessionPhase.RUNNING -> "IN SESSION · ENDS $ends"
         SessionPhase.PAUSED -> "IN SESSION · PAUSED"
         SessionPhase.FINISHED -> "SESSION OVER"
       }
     // The state in the accent, as on every card label.
     Text(label, style = MaterialTheme.typography.labelMedium, color = if (phase == SessionPhase.RUNNING) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
     Text(
-      SessionTimer.line(session, now),
+      line,
       style = MaterialTheme.typography.titleLarge,
       color = MaterialTheme.colorScheme.onSurface,
       textAlign = TextAlign.Center,
@@ -221,11 +238,11 @@ fun startSession(app: HabitApp, status: HabitStatus, minutes: Int) =
   Sessions.start(app, status.habit.id, status.habit.name, status.pick?.topic?.id, app.repository.today(), minutes)
 
 /** A session's length for [status]'s habit: one tap, no choosing. */
-fun suggestedMinutes(status: HabitStatus): Int = SessionTimer.defaultMinutes(status.habit.kind)
+fun suggestedMinutes(status: HabitStatus): Int = SessionTimer.defaultMinutes(status.habit.kind, status.habit.sessionMinutes)
 
 /** The haptic when a session ends while Home is showing; not again on every return to it. */
 @Composable
-fun FinishHaptic(session: FocusSession?, now: Long, onFinish: () -> Unit) {
+fun FinishHaptic(session: FocusSession?, now: () -> Long, onFinish: () -> Unit) {
   val finishedAt = session?.finishedAt
-  LaunchedEffect(finishedAt) { if (finishedAt != null && now - finishedAt < 2_000) onFinish() }
+  LaunchedEffect(finishedAt) { if (finishedAt != null && now() - finishedAt < 2_000) onFinish() }
 }

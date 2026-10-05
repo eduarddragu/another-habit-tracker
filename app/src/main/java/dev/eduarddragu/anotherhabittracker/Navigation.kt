@@ -159,6 +159,7 @@ fun MainNavigation(
               onGuard = { show(Guard) },
               onTimeOff = { show(TimeOffKey) },
               onLogSession = { habitId, minutes, day -> show(LogEntry(habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
+              onUndoable = ::undoable,
               modifier = screen,
             )
           }
@@ -180,9 +181,9 @@ fun MainNavigation(
           }
           entry<Backup> { BackupScreen(app = app, modifier = screen) }
           entry<Guard> { GuardSettingsScreen(app = app, modifier = screen) }
-          entry<TimeOffKey> { TimeOffScreen(app = app, modifier = screen) }
+          entry<TimeOffKey> { TimeOffScreen(app = app, onUndoable = ::undoable, modifier = screen) }
           entry<CurriculumBrowser> { key -> CurriculumScreen(app = app, habitId = key.habitId, onUndoable = ::undoable, modifier = screen) }
-          entry<LogEntry>(metadata = sheetMetadata) { key -> LogScreen(app = app, habitId = key.habitId, entryId = key.entryId, onDay = key.onDay, prefillMinutes = key.minutes, onDone = { finish(key, it) }, modifier = screen) }
+          entry<LogEntry>(metadata = sheetMetadata) { key -> LogScreen(app = app, habitId = key.habitId, entryId = key.entryId, onDay = key.onDay, prefillMinutes = key.minutes, onDone = { finish(key, it) }, onDoneUndoable = { message, undo -> finish(key, null); undoable(message, undo) }, modifier = screen) }
           entry<HabitSettings> { key -> HabitSettingsScreen(app = app, habitId = key.habitId, onDone = { finish(key, it) }, modifier = screen) }
         },
     )

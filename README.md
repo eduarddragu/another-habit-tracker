@@ -4,12 +4,12 @@
 </picture>
 
 <p>
-  <img alt="Kotlin" src="https://img.shields.io/badge/kotlin-2.4-1a1714?style=flat-square&labelColor=c14f1e&logo=kotlin&logoColor=white">
-  <img alt="Jetpack Compose" src="https://img.shields.io/badge/ui-Jetpack%20Compose-1a1714?style=flat-square&labelColor=c14f1e&logo=jetpackcompose&logoColor=white">
-  <img alt="Android 14+" src="https://img.shields.io/badge/android-14%2B-1a1714?style=flat-square&labelColor=c14f1e&logo=android&logoColor=white">
-  <img alt="Internet: not even asked" src="https://img.shields.io/badge/internet-not%20even%20asked-1a1714?style=flat-square&labelColor=c14f1e">
-  <img alt="License: GPL v3" src="https://img.shields.io/badge/license-GPL%20v3-1a1714?style=flat-square&labelColor=c14f1e">
-  <a href="https://eduarddragu.dev"><img alt="By eduarddragu.dev" src="https://img.shields.io/badge/by-eduarddragu.dev-1a1714?style=flat-square&labelColor=c14f1e"></a>
+  <img alt="Kotlin" src="https://img.shields.io/badge/kotlin-2.4-1a1714?style=flat-square&labelColor=b04619&logo=kotlin&logoColor=white">
+  <img alt="Jetpack Compose" src="https://img.shields.io/badge/ui-Jetpack%20Compose-1a1714?style=flat-square&labelColor=b04619&logo=jetpackcompose&logoColor=white">
+  <img alt="Android 14+" src="https://img.shields.io/badge/android-14%2B-1a1714?style=flat-square&labelColor=b04619&logo=android&logoColor=white">
+  <img alt="Internet: not even asked" src="https://img.shields.io/badge/internet-not%20even%20asked-1a1714?style=flat-square&labelColor=b04619">
+  <img alt="License: GPL v3" src="https://img.shields.io/badge/license-GPL%20v3-1a1714?style=flat-square&labelColor=b04619">
+  <a href="https://eduarddragu.dev"><img alt="By eduarddragu.dev" src="https://img.shields.io/badge/by-eduarddragu.dev-1a1714?style=flat-square&labelColor=b04619"></a>
 </p>
 
 **(Another) habit tracker, built for me: it picks what I study and nags me until I've done it. It blocks my doomscrolling and keeps reminding me that every day counts.**
@@ -47,6 +47,8 @@ The log form tells you what the score will do before you save it. A topic that c
 
 Meditation gets a daily item too: one small practice for the session (a longer exhale, a body scan, noting thoughts) in three short steps. Every practice comes up once before any repeats.
 
+**Keeps a reading list.** Reading is twenty minutes of a paper book a day. Each session is logged with the book (and its author, if you like), already filled in with the one you're on, and "Finished it" closes it. The habit's page keeps the shelf: the book in progress, since when and for how long, and every book finished, with the date and the time it took. Its daily card remembers yesterday: a book left unfinished gets a gentle push ("Atomic Habits won't finish itself."), a finished one a "What's next?".
+
 **Gets pushier.** Each habit has its own reminder times, and each one hits harder than the last. The first sets out the day's topic. The middle ones nudge, then push. The last is a last call, with the streak on the line and its own sound. Log the habit and the rest of the day goes quiet. Weekdays and weekends can have their own times: lunch and evening during the week, when a reminder at 10:00 would just get swiped, and spread out on Saturday and Sunday.
 
 | Reminder | Sounds like | Channel |
@@ -66,7 +68,7 @@ On Sunday evening a recap closes the week: days per habit, time, the average sco
 
 **Opens on a planet.** Home greets you by the time of day ("Still up, Eduard?") and gives you a line for the day ("Nobody asked if you felt like it."), while a small planet sways in the middle and the habit cards wait below. Every line is written for this app; none is borrowed from a poster.
 
-**Turns the planet into a timer.** One tap on the planet (or on the topic card) starts a 30-minute session, 5 for meditation. The planet becomes the clock: the disc grows, the ring opens into a circle, and an accent arc drains as the minutes go. Under it stay the topic and its questions, so checking what's in scope never means leaving the timer. The countdown is also in the notification and in the status bar. When time's up a chime plays, the ring closes, and Log opens with the minutes already filled in.
+**Turns the planet into a timer.** One tap on the planet (or on the topic card) starts a session: 30 minutes for study, 5 for meditation, 20 for reading, or whatever length the habit is set to. The planet becomes the clock: the disc grows, the ring opens into a circle, and an accent arc drains as the minutes go. Under it stay the topic and its questions, so checking what's in scope never means leaving the timer. The countdown is also in the notification and in the status bar. When time's up a chime plays, the ring closes, and Log opens with the minutes already filled in.
 
 **Takes time off with you.** Life happens. Time off covers a stretch of days, starting up to 60 days back if they've already gone, open until you're back or with an end date. Days off don't count and don't break the streak, and nothing nags: no reminders, no guard, no recap, just a kind line on the home screen. The study topic of the first day off waits for you and comes back on your return.
 
@@ -83,7 +85,7 @@ On Sunday evening a recap closes the week: days per habit, time, the average sco
 - Reminders are exact alarms set on the phone (`AlarmManager`, `USE_EXACT_ALARM`), rescheduled after a reboot, an app update, or a time or timezone change. No server involved.
 - Glance for the widget, refreshed on every change and just after midnight.
 - Type from [eduarddragu.dev](https://eduarddragu.dev): Cormorant Garamond for titles, DM Sans for text and numbers, Geist Mono for small labels. Bundled under the SIL Open Font License and cut down to Latin characters (licenses in `app/src/main/assets/licenses/`). Habit icons are hand-drawn vectors.
-- The logic that matters (streaks, time off, reminder timing and tone, heatmap, stats, topic picking and due reviews, curriculum validation, the scroll guard, the session timer, the weekly recap) is plain Kotlin with unit tests.
+- The logic that matters (streaks, time off, reminder timing and tone, heatmap, stats, topic picking and due reviews, curriculum validation, the scroll guard, the session timer, the weekly recap, the reading list) is plain Kotlin with unit tests.
 
 ```
 app/src/main/java/dev/eduarddragu/anotherhabittracker/

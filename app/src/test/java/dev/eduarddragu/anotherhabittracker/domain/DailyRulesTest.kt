@@ -3,18 +3,11 @@ package dev.eduarddragu.anotherhabittracker.domain
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DailyRulesTest {
   private val today = LocalDate.of(2026, 10, 1) // a Thursday: Monday Sep 28 is in the same ISO week
-
-  @Test
-  fun freezeUsedThisWeekIsReported() {
-    assertEquals(today.minusDays(1), Freezes.usedThisWeek(today, setOf(today.minusDays(1))))
-    assertNull(Freezes.usedThisWeek(today, setOf(today.minusDays(7))))
-  }
 
   @Test
   fun yesterdayCanBeSavedOnlyWhenThereIsAStreakAndAFreeze() {
@@ -43,6 +36,8 @@ class DailyRulesTest {
     assertFalse("logged", Freezes.yesterdayEmpty(today, setOf(before, yesterday), emptySet()))
     assertFalse("frozen", Freezes.yesterdayEmpty(today, setOf(before), setOf(yesterday)))
     assertFalse("habit started today", Freezes.yesterdayEmpty(today, setOf(today), emptySet()))
+    assertTrue("a day off yesterday is empty", Freezes.yesterdayEmpty(today, setOf(before), emptySet(), bridges = setOf(yesterday)))
+    assertTrue("days off show the habit was running", Freezes.yesterdayEmpty(today, emptySet(), emptySet(), bridges = setOf(before, yesterday)))
   }
 
   @Test

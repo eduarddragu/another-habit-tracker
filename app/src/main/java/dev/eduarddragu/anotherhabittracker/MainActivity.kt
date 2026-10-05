@@ -86,6 +86,8 @@ class MainActivity : ComponentActivity() {
     super.onResume()
     // The user may have changed notification or battery settings while away.
     refreshDeliveryState()
+    // The minute poll stalls in deep sleep: the day on screen may be stale after the screen wakes.
+    (application as HabitApp).repository.refreshDay()
     // A session whose end alarm was lost (the phone off at the time) is finished now.
     Sessions.settle(application as HabitApp)
   }
@@ -120,8 +122,11 @@ class MainActivity : ComponentActivity() {
     // Action buttons, unlike a tap on the notification body, don't dismiss the notification.
     if (logId >= 0) {
       Notifications.dismiss(this, logId)
-      pendingLogMinutes = intent.getIntExtra(Notifications.EXTRA_LOG_MINUTES, 0).takeIf { it > 0 }
-      pendingLogDay = intent.getLongExtra(Notifications.EXTRA_LOG_DAY, Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }
+      // The activity is exported: extras from anywhere else are trusted only within what a session
+      // can produce (a log for today or yesterday, at most ten hours).
+      pendingLogMinutes = intent.getIntExtra(Notifications.EXTRA_LOG_MINUTES, 0).takeIf { it in 1..MAX_LOG_MINUTES }
+      val today = (application as HabitApp).repository.today().toEpochDay()
+      pendingLogDay = intent.getLongExtra(Notifications.EXTRA_LOG_DAY, Long.MIN_VALUE).takeIf { it == today || it == today - 1 }
       pendingLogHabitId = logId
     } else if (openId >= 0) {
       pendingOpenHabitId = openId
@@ -132,6 +137,7 @@ class MainActivity : ComponentActivity() {
 
   private companion object {
     const val KEY_ASKED = "notifications_asked"
+    const val MAX_LOG_MINUTES = 600
 
     /** Picker previews are rate-limited by the system: publish once per process. */
     var previewsPublished = false

@@ -14,8 +14,8 @@ class NewFeaturesTest {
   fun milestonesOnlyOnTheExactDay() {
     assertTrue(Milestones.line(7)!!.isNotBlank())
     assertNull(Milestones.line(8))
-    assertTrue(Milestones.isMilestone(100))
-    assertFalse(Milestones.isMilestone(99))
+    assertTrue(Milestones.line(100)!!.isNotBlank())
+    assertNull(Milestones.line(99))
   }
 
   @Test
