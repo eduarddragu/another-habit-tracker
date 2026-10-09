@@ -76,15 +76,20 @@ private val DarkColors =
     outlineVariant = Dark.borderStrong,
     tertiary = Dark.muted,
     onTertiary = Dark.background,
-    inverseSurface = Dark.text,
+    // The site's dark invert-bg: a little softer than the text color, so snackbars don't glare.
+    inverseSurface = Color(0xFFECE6DD),
     inverseOnSurface = Dark.background,
     inversePrimary = Light.accent,
     surfaceTint = Color.Transparent,
     error = Dark.accent,
   )
 
-/** Controls (score squares, icon picker) are medium; every card, on every screen, is large. */
-private val AppShapes = Shapes(small = RoundedCornerShape(8.dp), medium = RoundedCornerShape(12.dp), large = RoundedCornerShape(24.dp))
+/**
+ * Controls (score squares, icon picker, text fields, snackbars) are medium; every card, on every screen,
+ * is large, and so are dialogs and pickers (extra large, which Material would round to 28). Extra small
+ * names the tag radius.
+ */
+private val AppShapes = Shapes(extraSmall = RoundedCornerShape(4.dp), small = RoundedCornerShape(8.dp), medium = RoundedCornerShape(12.dp), large = RoundedCornerShape(24.dp), extraLarge = RoundedCornerShape(24.dp))
 
 /** Fixed brand palette: dynamic (wallpaper) colors are deliberately off. */
 @Composable

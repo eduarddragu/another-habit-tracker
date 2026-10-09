@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Habit icon: 24dp line drawing, 1.75 stroke. Tinted in code. A house with a door. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3.5,11 L12,4 L20.5,11 M6,9 V19 C6,19.55 6.45,20 7,20 H17 C17.55,20 18,19.55 18,19 V9 M10,20 V15 C10,14.45 10.45,14 11,14 H13 C13.55,14 14,14.45 14,15 V20"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.75"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

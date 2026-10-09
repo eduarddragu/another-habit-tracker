@@ -19,7 +19,9 @@ import dev.eduarddragu.anotherhabittracker.data.Habit
 import dev.eduarddragu.anotherhabittracker.domain.HabitKind
 import dev.eduarddragu.anotherhabittracker.domain.FocusSession
 import dev.eduarddragu.anotherhabittracker.domain.RecapText
+import dev.eduarddragu.anotherhabittracker.domain.SessionKind
 import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
+import dev.eduarddragu.anotherhabittracker.domain.dayCount
 import dev.eduarddragu.anotherhabittracker.domain.Topic
 import dev.eduarddragu.anotherhabittracker.domain.ReminderText
 import dev.eduarddragu.anotherhabittracker.domain.Tone
@@ -38,9 +40,16 @@ object Notifications {
   /** A focus session: the silent countdown, and the chime when it's over. */
   private const val CHANNEL_SESSION = "session_v1"
   private const val CHANNEL_SESSION_END = "session_end_v1"
+  /** The end of a calm session (meditation, reading, chores): a softer chime and a single short buzz. */
+  private const val CHANNEL_SESSION_END_SOFT = "session_end_soft_v1"
+  /**
+   * "Logged." after Done on a reminder, with Undo: low importance, so it shows without a sound or a
+   * heads-up (the tap was the action; this only confirms it).
+   */
+  private const val CHANNEL_CONFIRM = "confirm_v1"
 
   /** Bumped whenever a channel is added: the set below is created again once. */
-  private const val CHANNELS_VERSION = "v5"
+  private const val CHANNELS_VERSION = "v6"
   private val RETIRED_CHANNELS = listOf("reminders", "last_call", "reminders_v2", "last_call_v2", "reminders_v3", "last_call_v3")
 
   // Timings in ms (off, on, off, on...) and amplitudes at full strength: the default amplitude of a
@@ -49,6 +58,8 @@ object Notifications {
   private val REMINDER_AMPLITUDES = intArrayOf(0, 255, 0, 255)
   private val LAST_CALL_TIMINGS = longArrayOf(0, 200, 110, 200, 110, 200, 180, 650)
   private val LAST_CALL_AMPLITUDES = intArrayOf(0, 180, 0, 220, 0, 255, 0, 255)
+  private val SOFT_TIMINGS = longArrayOf(0, 180)
+  private val SOFT_AMPLITUDES = intArrayOf(0, 90)
 
   /** Opens the app straight on the log screen of a habit. */
   const val EXTRA_LOG_HABIT_ID = "log_habit_id"
@@ -87,6 +98,15 @@ object Notifications {
           description = "When a session's time is up"
           configure(context, "reminder_chime", REMINDER_TIMINGS, REMINDER_AMPLITUDES)
         },
+        NotificationChannel(CHANNEL_SESSION_END_SOFT, "Calm session over", NotificationManager.IMPORTANCE_HIGH).apply {
+          description = "When a meditation, reading or chores session's time is up"
+          configure(context, "session_soft_chime", SOFT_TIMINGS, SOFT_AMPLITUDES)
+        },
+        NotificationChannel(CHANNEL_CONFIRM, "Confirmations", NotificationManager.IMPORTANCE_LOW).apply {
+          description = "A short note after Done on a reminder, with Undo"
+          setSound(null, null)
+          enableVibration(false)
+        },
         NotificationChannel(CHANNEL_RECAP, "Weekly recap", NotificationManager.IMPORTANCE_DEFAULT).apply {
           description = "Sunday evening: how the week went"
           configure(context, "reminder_chime", REMINDER_TIMINGS, REMINDER_AMPLITUDES)
@@ -111,9 +131,10 @@ object Notifications {
 
   /**
    * One notification per habit: each reminder replaces the previous one. [day]: the day the reminder
-   * is about, so "Done" tapped just after midnight still logs it.
+   * is about, so "Done" tapped just after midnight still logs it. [preview]: a sample from settings,
+   * with no buttons (Done would log for real) and its own id, so a live reminder stays up.
    */
-  fun show(context: Context, habit: Habit, text: ReminderText, tone: Tone, day: LocalDate? = null) {
+  fun show(context: Context, habit: Habit, text: ReminderText, tone: Tone, day: LocalDate? = null, preview: Boolean = false) {
     val tapOpensPage = habit.kind == HabitKind.STUDY
     val manager = NotificationManagerCompat.from(context)
     if (!manager.areNotificationsEnabled()) return
@@ -132,14 +153,16 @@ object Notifications {
         .setPriority(if (tone == Tone.LAST_CALL) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
     // At most three buttons show. Study: Log and On it. A habit without a score (meditation): Done,
     // its app and On it; tapping the notification itself opens the log form.
-    if (habit.kind == HabitKind.STUDY) builder.addAction(0, "Log", logIntent)
-    // A habit without a score (meditation) can be marked done right here, without opening the app.
-    if (habit.kind == HabitKind.SIMPLE) builder.addAction(0, "Done", actionIntent(context, habit.id, NotificationActionReceiver.ACTION_DONE, requestOffset = 300_000, day = day))
-    openAppIntent(context, habit)?.let { (label, intent) -> builder.addAction(0, "Open $label", intent) }
-    // Already on it: the reminders in between keep quiet for a while. Never offered on the last call.
-    if (tone != Tone.LAST_CALL) builder.addAction(0, "On it", actionIntent(context, habit.id, NotificationActionReceiver.ACTION_ON_IT, requestOffset = 400_000))
+    if (!preview) {
+      if (habit.kind == HabitKind.STUDY) builder.addAction(0, "Log", logIntent)
+      // A habit without a score (meditation) can be marked done right here, without opening the app.
+      if (habit.kind == HabitKind.SIMPLE) builder.addAction(0, "Done", actionIntent(context, habit.id, NotificationActionReceiver.ACTION_DONE, requestOffset = 300_000, day = day))
+      openAppIntent(context, habit)?.let { (label, intent) -> builder.addAction(0, "Open $label", intent) }
+      // Already on it: the reminders in between keep quiet for a while. Never offered on the last call.
+      if (tone != Tone.LAST_CALL) builder.addAction(0, "On it", actionIntent(context, habit.id, NotificationActionReceiver.ACTION_ON_IT, requestOffset = 400_000))
+    }
     try {
-      manager.notify(notificationId(habit.id), builder.build())
+      manager.notify(if (preview) PREVIEW_ID_BASE + notificationId(habit.id) else notificationId(habit.id), builder.build())
     } catch (_: SecurityException) {
       // Notification permission revoked between the check and the post.
     }
@@ -203,7 +226,7 @@ object Notifications {
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
     val body = if (minutes == null) "Too short to count." else "$minutes minutes${topic?.let { " on ${it.title}" } ?: ""}. Log it while it's fresh."
     val builder =
-      NotificationCompat.Builder(context, CHANNEL_SESSION_END)
+      NotificationCompat.Builder(context, if (session.kind == SessionKind.STUDY) CHANNEL_SESSION_END else CHANNEL_SESSION_END_SOFT)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(if (session.remaining(now) > 0) "Session ended" else "Time's up")
         .setContentText(body)
@@ -248,10 +271,48 @@ object Notifications {
 
   fun dismiss(context: Context, habitId: Long) = NotificationManagerCompat.from(context).cancel(notificationId(habitId))
 
+  /** How long "Logged." stays up: long enough to catch a pocket tap. */
+  private const val CONFIRM_MILLIS = 8_000L
+
+  /**
+   * After Done on a reminder: "Logged." with the streak, in place of the reminder (same id), and Undo,
+   * which deletes [entryId]. It goes away by itself.
+   */
+  fun showLogged(context: Context, habit: Habit, entryId: Long, streak: Int) {
+    val manager = NotificationManagerCompat.from(context)
+    if (!manager.areNotificationsEnabled()) return
+    val undo =
+      PendingIntent.getBroadcast(
+        context,
+        500_000 + habit.id.toInt(),
+        Intent(context, NotificationActionReceiver::class.java)
+          .setAction(NotificationActionReceiver.ACTION_UNDO)
+          .putExtra(NotificationActionReceiver.EXTRA_HABIT_ID, habit.id)
+          .putExtra(NotificationActionReceiver.EXTRA_ENTRY_ID, entryId),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+      )
+    val builder =
+      NotificationCompat.Builder(context, CHANNEL_CONFIRM)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle("${habit.name} · logged")
+        .setContentText(if (streak > 0) "Logged. ${dayCount(streak)}." else "Logged.")
+        .setContentIntent(activityIntent(context, habit.id, EXTRA_OPEN_HABIT_ID, requestOffset = 200_000))
+        .setAutoCancel(true)
+        .setSilent(true)
+        .setTimeoutAfter(CONFIRM_MILLIS)
+        .addAction(0, "Undo", undo)
+    try {
+      manager.notify(notificationId(habit.id), builder.build())
+    } catch (_: SecurityException) {
+      // Notification permission revoked between the check and the post.
+    }
+  }
+
   /** Reminders are about a single day: at midnight whatever is still up is stale. */
-  fun dismissAll(context: Context) {
+  /** Clears every reminder up, or only those posted before [postedBefore] (epoch millis). */
+  fun dismissAll(context: Context, postedBefore: Long = Long.MAX_VALUE) {
     val manager = context.getSystemService(NotificationManager::class.java)
-    manager.activeNotifications.filter { it.notification.channelId in REMINDER_CHANNELS }.forEach { manager.cancel(it.tag, it.id) }
+    manager.activeNotifications.filter { it.notification.channelId in REMINDER_CHANNELS && it.postTime < postedBefore }.forEach { manager.cancel(it.tag, it.id) }
   }
 
   fun isShowing(context: Context, habitId: Long): Boolean =
@@ -274,6 +335,7 @@ object Notifications {
   private const val KEY_CHANNELS = "channels_created"
   private const val RECAP_ID = 900_000
   private const val SESSION_ID = 900_001
+  private const val PREVIEW_ID_BASE = 800_000
 
   /** With [EXTRA_LOG_HABIT_ID]: minutes to prefill, and the day (epoch day) the session belongs to. */
   const val EXTRA_LOG_MINUTES = "log_minutes"

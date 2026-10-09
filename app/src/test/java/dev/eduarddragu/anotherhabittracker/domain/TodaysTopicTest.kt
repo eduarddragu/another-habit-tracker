@@ -96,6 +96,27 @@ class TodaysTopicTest {
   }
 
   @Test
+  fun theHeldTopicStaysOnTheDayItsLogged() {
+    val start = today.minusDays(4)
+    val before = listOf(session(5, "a-root"))
+    val held = TopicPicker.pickOn(curriculum, HabitSummaries.topicMarks(before), start)!!.topic
+    val (topic, _) = resolve(before + session(0, held.id), timeOff = listOf(TimeOffPeriod(start = start, end = today.minusDays(1))))
+    assertEquals(TopicPick(held, PickKind.CONTINUE), topic.pick)
+    // The day after, the hold is over.
+    val (tomorrow, picked) = resolve(before + session(1, held.id), timeOff = listOf(TimeOffPeriod(start = start.minusDays(1), end = today.minusDays(2))))
+    assertEquals(picked, tomorrow.pick)
+  }
+
+  @Test
+  fun aSessionOnAnotherTopicTodayTakesThePicksPlace() {
+    val (before, _) = resolve(listOf(session(3, "a-root")))
+    val other = listOf("a-root", "a-child", "b-one", "b-two").first { it != before.pick?.topic?.id }
+    val (topic, _) = resolve(listOf(session(3, "a-root"), session(0, other)))
+    assertEquals(other, topic.pick?.topic?.id)
+    assertEquals(if (other == "a-root") PickKind.REVIEW else PickKind.NEW, topic.pick?.kind)
+  }
+
+  @Test
   fun otherHabitsKeepTheirPick() {
     val (topic, picked) = resolve(listOf(LogRecord(today.minusDays(1), EntryType.SESSION, minutes = 5)), today, "a-root", kind = HabitKind.SIMPLE)
     assertEquals(picked, topic.pick)

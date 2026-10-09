@@ -4,6 +4,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MotivationTest {
@@ -57,5 +58,14 @@ class MotivationTest {
     assertEquals(Motivation.timeOffLine(day), Motivation.timeOffLine(day))
     org.junit.Assert.assertNotEquals(Motivation.timeOffLine(day, 1), Motivation.timeOffLine(day, 2))
     (0L..30L).forEach { org.junit.Assert.assertFalse(Motivation.timeOffLine(day.plusDays(it)).contains("—")) }
+  }
+
+  @Test
+  fun aSlipIsNamedAndMinutesAreTheHabitsOwn() {
+    assertNotEquals(Motivation.line(day, false), Motivation.line(day, false, slipped = true))
+    val lines = (0L..60L).map { Motivation.line(day.plusDays(it), false, minutes = 20) }
+    assertTrue("no hard-coded thirty", lines.none { "thirty" in it.lowercase() || "{" in it })
+    assertEquals("30 minutes, a few minutes", withMinutes("{minutes}", 30) + ", " + withMinutes("{minutes}", null))
+    assertEquals("A few minutes.", withMinutes("{Minutes}.", null))
   }
 }

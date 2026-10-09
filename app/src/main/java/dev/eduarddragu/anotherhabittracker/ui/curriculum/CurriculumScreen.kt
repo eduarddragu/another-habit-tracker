@@ -24,6 +24,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draw.drawBehind
@@ -120,7 +124,7 @@ fun CurriculumScreen(
             val today = status.pick?.topic?.id == review.topic.id
             Row(Modifier.fillMaxWidth()) {
               Column(Modifier.weight(1f).alignByBaseline()) {
-                Text(review.topic.title, style = MaterialTheme.typography.titleSmall)
+                Text(review.topic.title, style = MaterialTheme.typography.titleMedium)
                 Text(dueLine(review, status.today), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
               }
               if (today) {
@@ -191,7 +195,8 @@ fun CurriculumScreen(
 private fun Coverage(covered: Int, total: Int) {
   val colors = MaterialTheme.colorScheme
   val share by animateFloatAsState(if (total == 0) 0f else covered.toFloat() / total, tween(Motion.LONG, easing = Motion.EaseUi), label = "coverage")
-  Column {
+  // Read as one value with its bar, like the streak, instead of four fragments.
+  Column(Modifier.clearAndSetSemantics { contentDescription = "$covered of $total topics covered"; progressBarRangeInfo = ProgressBarRangeInfo(if (total == 0) 0f else covered.toFloat() / total, 0f..1f) }) {
     // One baseline for the number, the total and the caption's last line, like the streak.
     Row {
       Text(covered.toString(), style = NumeralsDisplay, color = if (covered > 0) colors.primary else colors.onSurfaceVariant, modifier = Modifier.opticalStart(covered.toString(), NumeralsDisplay).alignBy(LastBaseline))
@@ -227,9 +232,9 @@ private fun TopicRow(topic: Topic, state: TopicState, onKnown: () -> Unit, onUnk
       }
     }
     when (state) {
-      TopicState.KNOWN -> TextAction("Not known", onClick = onUnknown, modifier = Modifier.padding(start = 16.dp).alignBy(FirstBaseline), vertical = 0.dp)
+      TopicState.KNOWN -> TextAction("Not known", onClick = onUnknown, modifier = Modifier.padding(start = 16.dp).alignBy(FirstBaseline).semantics { contentDescription = "${topic.title}: not known after all" }, vertical = 0.dp)
       TopicState.DONE -> {}
-      else -> TextAction("Known", onClick = onKnown, modifier = Modifier.padding(start = 16.dp).alignBy(FirstBaseline), vertical = 0.dp)
+      else -> TextAction("Known", onClick = onKnown, modifier = Modifier.padding(start = 16.dp).alignBy(FirstBaseline).semantics { contentDescription = "Mark ${topic.title} as known" }, vertical = 0.dp)
     }
   }
 }

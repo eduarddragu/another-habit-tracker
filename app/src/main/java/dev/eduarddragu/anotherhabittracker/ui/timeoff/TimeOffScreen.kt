@@ -24,6 +24,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,11 +55,14 @@ class TimeOffViewModel(private val app: HabitApp) : ViewModel() {
 
   fun today(): LocalDate = app.repository.today()
 
-  /** Starts it, and clears any reminder already up: nothing nags from here. */
+  /**
+   * Starts it, and clears any reminder already up when today is off: nothing nags from here. A period
+   * entirely in the past leaves today's reminders alone.
+   */
   fun start(from: LocalDate, until: LocalDate?) =
     launchSafely {
       app.repository.startTimeOff(from, until)
-      Notifications.dismissAll(app)
+      if (TimeOffPeriod(start = from, end = until).contains(today())) Notifications.dismissAll(app)
     }
 
   /** Back today: the last day off was yesterday (a period that started today simply goes away). */
@@ -146,12 +151,14 @@ fun TimeOffScreen(
         SectionLabel("Earlier")
         past.forEach { period ->
           Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-              if (period.end == null || period.end == period.start) period.start.label() else "${period.start.label()} to ${period.end.label()}",
-              style = MaterialTheme.typography.bodyLarge,
-              modifier = Modifier.weight(1f),
+            val dates = if (period.end == null || period.end == period.start) period.start.label() else "${period.start.label()} to ${period.end.label()}"
+            Text(dates, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            // TalkBack hears which period goes, not a bare "Remove".
+            TextAction(
+              "Remove",
+              onClick = { viewModel.remove(period) { onUndoable("Time off removed") { viewModel.restore(period) } } },
+              modifier = Modifier.semantics { contentDescription = "Remove time off, $dates" },
             )
-            TextAction("Remove", onClick = { viewModel.remove(period) { onUndoable("Time off removed") { viewModel.restore(period) } } })
           }
         }
       }

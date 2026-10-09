@@ -93,17 +93,17 @@ data class ReminderText(val title: String, val body: String)
 object ReminderMessages {
   private val studyNudges =
     listOf(
-      "%s is still waiting. Thirty minutes, not three hours.",
+      "%s is still waiting. {Minutes}, not three hours.",
       "The laptop is right there. So is the notebook. Only %s is missing.",
       "Friendly reminder (for now): %s.",
-      "Half an hour. One. %s. Go.",
-      "Bruh. Keep thirty minutes of tonight for %s.",
+      "{Minutes}. One sitting. %s. Go.",
+      "Bruh. Keep {minutes} of tonight for %s.",
       "Work's done. Before the evening fills up: %s.",
     )
   private val studyPushes =
     listOf(
       "Haven't seen you study today. %s, remember?",
-      "One episode less tonight, thirty minutes of %s more.",
+      "One episode less tonight, {minutes} of %s more.",
     )
   private val simpleNudges =
     listOf(
@@ -122,6 +122,18 @@ object ReminderMessages {
       "Throwing away %3\$s for a night on the couch? %1\$s.",
       "Last call. %3\$s, gone at midnight. %1\$s.",
     )
+  /** The day after a miss, when a streak was alive the day before: one slip, not two. */
+  private val openingSlipped =
+    listOf(
+      "Yesterday slipped. Don't make it two.",
+      "One missed day is a blip. Today decides if it stays one.",
+      "Yesterday got away. Today doesn't have to.",
+    )
+  private val lastCallSlipped =
+    listOf(
+      "Missed yesterday. Miss today too and it's a pattern. %1\$s, now.",
+      "One missed day is a blip. Two is a habit of not. %1\$s.",
+    )
   private val lastCallNoStreak =
     listOf(
       "Nothing logged today. There's still time for %1\$s.",
@@ -130,22 +142,41 @@ object ReminderMessages {
 
   /**
    * [subject] is what the reminder is about: the habit name, or today's topic for a study habit.
-   * [openingBody] replaces the default streak line of the first reminder (e.g. the topic's first question).
+   * [openingBody] replaces the default streak line of the first reminder (e.g. the topic's first question);
+   * [nudgeBody] replaces the generic line of the reminders in between (e.g. a chores check). The last
+   * call always talks about the streak. [slipped]: yesterday was missed with a streak alive before it
+   * (HabitSummary.slipped). [minutes]: the habit's usual session, for the lines that name it; without
+   * it they say "a few minutes".
    */
-  fun text(subject: String, kind: HabitKind, tone: Tone, streak: Int, day: LocalDate, slot: Int, openingBody: String? = null): ReminderText {
+  fun text(subject: String, kind: HabitKind, tone: Tone, streak: Int, day: LocalDate, slot: Int, openingBody: String? = null, nudgeBody: String? = null, slipped: Boolean = false, minutes: Int? = null): ReminderText {
     val random = Random(day.toEpochDay() * 31 + slot)
-    val streakLine = if (streak > 0) "${dayCount(streak)} so far." else "No streak yet. Today works."
+    val streakLine =
+      when {
+        streak > 0 -> "${dayCount(streak)} so far."
+        slipped -> openingSlipped[Math.floorMod(day.toEpochDay(), openingSlipped.size.toLong()).toInt()]
+        else -> "No streak yet. Today works."
+      }
+    fun String.filled() = withMinutes(this, minutes)
     return when (tone) {
       Tone.OPENING -> ReminderText("Today: $subject", openingBody?.let { "$it\n$streakLine" } ?: streakLine)
-      Tone.NUDGE -> ReminderText(subject, pool(kind, studyNudges, simpleNudges).random(random).format(subject))
-      Tone.PUSH -> ReminderText(subject, pool(kind, studyPushes, simplePushes).random(random).format(subject))
+      Tone.NUDGE -> ReminderText(subject, nudgeBody ?: pool(kind, studyNudges, simpleNudges).random(random).filled().format(subject))
+      Tone.PUSH -> ReminderText(subject, nudgeBody ?: pool(kind, studyPushes, simplePushes).random(random).filled().format(subject))
       Tone.LAST_CALL ->
         ReminderText(
           "$subject · last call",
-          (if (streak > 0) lastCallStreak else lastCallNoStreak).random(random).format(subject, streak, dayCount(streak)),
+          (if (streak > 0) lastCallStreak else if (slipped) lastCallSlipped else lastCallNoStreak).random(random).format(subject, streak, dayCount(streak)),
         )
     }
   }
 
   private fun pool(kind: HabitKind, study: List<String>, simple: List<String>) = if (kind == HabitKind.STUDY) study else simple
+}
+
+/**
+ * Fills "{minutes}" ("30 minutes") and "{Minutes}" (the same at the start of a sentence) with a
+ * session's length, or "a few minutes" when there's none to name.
+ */
+fun withMinutes(line: String, minutes: Int?): String {
+  val text = minutes?.let { if (it == 1) "1 minute" else "$it minutes" } ?: "a few minutes"
+  return line.replace("{minutes}", text).replace("{Minutes}", text.replaceFirstChar { it.uppercase() })
 }

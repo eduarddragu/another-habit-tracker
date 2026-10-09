@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import androidx.core.content.edit
 import dev.eduarddragu.anotherhabittracker.domain.FocusSession
+import dev.eduarddragu.anotherhabittracker.domain.SessionKind
 import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
 import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +45,7 @@ class SessionStore(private val context: Context) {
         putLong("habit", session.habitId)
         putString("habitName", session.habitName)
         putString("topic", session.topicId)
+        putString("kind", session.kind.name)
         putString("day", session.day.toString())
         putLong("planned", session.plannedMillis)
         putLong("started", session.startedAt)
@@ -78,6 +80,8 @@ class SessionStore(private val context: Context) {
         pausedAt = time("paused"),
         pausedTotalMillis = prefs.getLong("pausedTotal", 0),
         finishedAt = time("finished"),
+        // Saved before sessions carried their kind: guessed from the topic.
+        kind = prefs.getString("kind", null)?.let { name -> SessionKind.entries.firstOrNull { it.name == name } } ?: SessionKind.guess(prefs.getString("topic", null)),
       )
         .shifted(shift)
     }.getOrNull()

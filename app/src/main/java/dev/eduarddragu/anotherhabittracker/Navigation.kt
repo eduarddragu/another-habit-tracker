@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
@@ -123,9 +124,12 @@ fun MainNavigation(
     if (backStack.lastOrNull() != key) backStack.add(key)
   }
 
-  /** A message with Undo: the undo runs only if the action is tapped before the snackbar goes. */
+  /**
+   * A message with Undo: the undo runs only if the action is tapped before the snackbar goes. It stays
+   * the long time (about ten seconds): the only window to take back a discarded session or a freeze.
+   */
   fun undoable(message: String, undo: () -> Unit) {
-    scope.launch { if (snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed) undo() }
+    scope.launch { if (snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) undo() }
   }
 
   // A same-day log needs no message: the commit on the screen underneath says it. Only what can't be
@@ -137,7 +141,7 @@ fun MainNavigation(
     if (message != null) scope.launch { snackbar.showSnackbar(message) }
   }
 
-  Scaffold(contentWindowInsets = WindowInsets(0), snackbarHost = { SnackbarHost(snackbar, Modifier.navigationBarsPadding()) }) { padding ->
+  Scaffold(contentWindowInsets = WindowInsets(0), snackbarHost = { SnackbarHost(snackbar, Modifier.navigationBarsPadding()) { Snackbar(it, shape = MaterialTheme.shapes.medium) } }) { padding ->
     NavDisplay(
       modifier = Modifier.padding(padding),
       backStack = backStack,

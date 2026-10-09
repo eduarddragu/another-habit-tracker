@@ -1,5 +1,13 @@
 package dev.eduarddragu.anotherhabittracker.ui.detail
 
+import dev.eduarddragu.anotherhabittracker.data.reminderTimesOn
+import java.time.LocalTime
+import dev.eduarddragu.anotherhabittracker.domain.Motivation
+import dev.eduarddragu.anotherhabittracker.domain.formatTime
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
@@ -51,8 +59,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.LastBaseline
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -70,6 +78,8 @@ import dev.eduarddragu.anotherhabittracker.domain.BookDay
 import dev.eduarddragu.anotherhabittracker.domain.BookRead
 import dev.eduarddragu.anotherhabittracker.domain.BookSituation
 import dev.eduarddragu.anotherhabittracker.domain.Books
+import dev.eduarddragu.anotherhabittracker.domain.Chores
+import dev.eduarddragu.anotherhabittracker.domain.ChoresDay
 import dev.eduarddragu.anotherhabittracker.domain.Continuation
 import dev.eduarddragu.anotherhabittracker.domain.Shelf
 import dev.eduarddragu.anotherhabittracker.domain.Descriptions
@@ -107,6 +117,7 @@ import dev.eduarddragu.anotherhabittracker.domain.FocusSession
 import dev.eduarddragu.anotherhabittracker.ui.home.rememberSessionTick
 import dev.eduarddragu.anotherhabittracker.ui.home.endsAtClock
 import dev.eduarddragu.anotherhabittracker.ui.home.suggestedMinutes
+import dev.eduarddragu.anotherhabittracker.ui.home.SessionLabel
 import dev.eduarddragu.anotherhabittracker.ui.home.startSession
 import dev.eduarddragu.anotherhabittracker.ui.components.WeekStrip
 import dev.eduarddragu.anotherhabittracker.ui.components.formatDuration
@@ -126,8 +137,12 @@ class HabitDetailViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app, h
 
   fun unmark(topicIds: Set<String>) = app.repository.undoKnown(habitId, topicIds)
 
-  /** Uses this week's freeze on yesterday, which was missed; hands back the freeze's id (null if refused), for the undo. */
-  fun freezeYesterday(onDone: (Long?) -> Unit) = once { onDone(app.repository.freeze(habitId, app.repository.today().minusDays(1))) }
+  /**
+   * Uses this week's freeze on the day before [shownToday], the day the page offered it for (around
+   * midnight the clock may already be a day ahead); hands back the freeze's id (null if refused), for
+   * the undo.
+   */
+  fun freezeYesterday(shownToday: LocalDate, onDone: (Long?) -> Unit) = once { onDone(app.repository.freeze(habitId, shownToday.minusDays(1))) }
 
   /** Undo of [freezeYesterday]: in the app's scope, since the snackbar can outlive this page. */
   fun unfreeze(id: Long) = app.repository.undoFreeze(id)
@@ -217,7 +232,7 @@ fun HabitDetailScreen(
       StreakBlock(
         status,
         commit,
-        onFreezeYesterday = { viewModel.freezeYesterday { id -> if (id != null) onUndoable("Yesterday is frozen") { viewModel.unfreeze(id) } else onMessage("Freeze not available") } },
+        onFreezeYesterday = { viewModel.freezeYesterday(status.today) { id -> if (id != null) onUndoable("Yesterday is frozen.") { viewModel.unfreeze(id) } else onMessage("Freeze not available.") } },
         onLogYesterday = { onLogOnDay(status.today.minusDays(1)) },
         modifier = Modifier.gutter().rise(arrival[1], 16.dp),
       )
@@ -228,7 +243,7 @@ fun HabitDetailScreen(
           status,
           viewModel.curriculum,
           onLog = onLog,
-          onKnown = { id -> viewModel.markKnown(id) { marked -> if (marked.isNotEmpty()) onUndoable("Marked as known") { viewModel.unmark(marked) } } },
+          onKnown = { id -> viewModel.markKnown(id) { marked -> if (marked.isNotEmpty()) onUndoable("Marked as known.") { viewModel.unmark(marked) } } },
           onKeepGoing = viewModel::keepGoing,
           onCurriculum = onCurriculum,
           onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null,
@@ -251,7 +266,11 @@ fun HabitDetailScreen(
         val book = remember(shelf, status.today, status.doneToday) { Books.day(shelf, status.today, status.doneToday, suggestedMinutes(status)) }
         TodaysBook(status, book, onLog = onLog, onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null, modifier = Modifier.gutter().rise(arrival[2], 32.dp))
       }
-    } else if (!study || status.habit.linkedPackage != null) {
+    } else if (!study && Chores.appliesTo(status.habit.kind, status.habit.name, status.habit.icon)) {
+      item(key = "chores") { TodaysChores(status, Chores.day(status.today), onLog = onLog, onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null, modifier = Modifier.gutter().rise(arrival[2], 32.dp)) }
+    } else if (!study) {
+      item(key = "today") { TodaysHabit(status, onLog = onLog, onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null, modifier = Modifier.gutter().rise(arrival[2], 32.dp)) }
+    } else if (status.habit.linkedPackage != null) {
       item(key = "actions") {
         FlowRow(Modifier.gutter().rise(arrival[3], 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           if (!study) LogButton(status.doneToday, onLog)
@@ -266,7 +285,7 @@ fun HabitDetailScreen(
       item(key = "books") {
         BookList(
           shelf,
-          onFinish = { book -> viewModel.markFinished(book) { id -> onUndoable("Finished ${book.title}") { viewModel.unfinish(id) } } },
+          onFinish = { book -> viewModel.markFinished(book) { id -> onUndoable("Finished ${book.title}.") { viewModel.unfinish(id) } } },
           modifier = Modifier.gutter().rise(arrival[4], 16.dp),
         )
       }
@@ -336,7 +355,7 @@ fun HabitDetailScreen(
         TextButton(
           onClick = {
             removingFreeze = null
-            freeze?.let { entry -> viewModel.removeFreeze(entry) { onUndoable("Freeze removed") { viewModel.restoreFreeze(entry) } } }
+            freeze?.let { entry -> viewModel.removeFreeze(entry) { onUndoable("Freeze removed.") { viewModel.restoreFreeze(entry) } } }
           },
           enabled = freeze != null,
         ) {
@@ -357,18 +376,28 @@ private fun StreakBlock(status: HabitStatus, commit: CommitPlayback, onFreezeYes
   val stats = status.stats
   val colors = MaterialTheme.colorScheme
   val shown = if (commit.rolled) stats.streak else commit.commit?.previousStreak ?: stats.streak
-  val numberColor by animateColorAsState(if (shown > 0) colors.primary else colors.onSurfaceVariant, tween(Motion.LONG, easing = Motion.EaseUi), label = "streak")
+  val rise = with(LocalDensity.current) { 8.dp.roundToPx() }
   Column(modifier) {
-    // The caption's last line sits on the number's baseline. Number and caption read as one value.
-    Row(Modifier.clearAndSetSemantics { contentDescription = Descriptions.streak(shown) }) {
-      RollingNumber(shown, NumeralsDisplay, numberColor, Modifier.alignBy(LastBaseline))
-      Spacer(Modifier.width(12.dp))
-      Column(Modifier.alignBy(LastBaseline)) {
-        Text(if (shown == 1) "DAY" else "DAYS", style = MaterialTheme.typography.labelMedium, color = colors.primary)
-        Text("IN A ROW", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+    // No streak, no number (a grey 0 as the page's first word reads as a verdict): the week says it.
+    // The first day done brings it in as the commit rolls it to 1.
+    AnimatedVisibility(
+      visible = shown > 0,
+      enter = fadeIn(tween(Motion.LONG, easing = Motion.EaseEntrance)) + slideInVertically(tween(Motion.LONG, easing = Motion.EaseEntrance)) { rise } + expandVertically(tween(Motion.LONG, easing = Motion.EaseUi), expandFrom = Alignment.Top),
+      exit = fadeOut(tween(Motion.FADE_OUT)) + shrinkVertically(tween(Motion.SHORT, easing = Motion.EaseUi)),
+    ) {
+      Column {
+        // The caption's last line sits on the number's baseline. Number and caption read as one value.
+        Row(Modifier.clearAndSetSemantics { contentDescription = Descriptions.streak(shown) }) {
+          RollingNumber(shown, NumeralsDisplay, colors.primary, Modifier.alignBy(LastBaseline))
+          Spacer(Modifier.width(12.dp))
+          Column(Modifier.alignBy(LastBaseline)) {
+            Text(if (shown == 1) "DAY" else "DAYS", style = MaterialTheme.typography.labelMedium, color = colors.primary)
+            Text("IN A ROW", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+          }
+        }
+        Spacer(Modifier.height(14.dp))
       }
     }
-    Spacer(Modifier.height(14.dp))
     WeekStrip(status.cells, status.today, cellSize = 28.dp, gap = 8.dp, initials = true, commit = commit, daysOff = status.summary.daysOff)
     // No running commentary under the week (the squares say it): only a milestone, on its day.
     val milestone = if (commit.settled && status.doneToday) Milestones.line(stats.streak) else null
@@ -398,7 +427,8 @@ private fun StreakBlock(status: HabitStatus, commit: CommitPlayback, onFreezeYes
 @Composable
 private fun TodaysPractice(status: HabitStatus, practice: Practice, onLog: () -> Unit, onStart: ((Int) -> Unit)?, modifier: Modifier = Modifier) {
   DayCard(status.doneToday, modifier) {
-    if (status.doneToday) CardLabel(state = "DONE TODAY", trail = listOf("PRACTICE")) else CardLabel(lead = listOf("TODAY"), state = "PRACTICE")
+    // The state (today, done) in the accent, the noun muted, as on the topic card and Home.
+    CardLabel(lead = listOf("PRACTICE"), state = if (status.doneToday) "DONE" else "TODAY")
     Text(practice.title, style = MaterialTheme.typography.headlineSmall)
     NumberedSteps(practice.steps, startDelay = 560L)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
@@ -414,6 +444,58 @@ private fun TodaysPractice(status: HabitStatus, practice: Practice, onLog: () ->
 }
 
 /**
+ * Chores' counterpart to today's practice: the day's motto as the title, then every check in today's
+ * order (the first is where to start), the state the place should be in. Any time spent counts.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TodaysChores(status: HabitStatus, chores: ChoresDay, onLog: () -> Unit, onStart: ((Int) -> Unit)?, modifier: Modifier = Modifier) {
+  DayCard(status.doneToday, modifier) {
+    CardLabel(lead = listOf("CHORES"), state = if (status.doneToday) "DONE" else "TODAY")
+    Text(chores.motto, style = MaterialTheme.typography.headlineSmall)
+    NumberedSteps(chores.checks.map { it.check }, startDelay = 560L)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+      LogButton(status.doneToday, onLog)
+      OpenLinkedAppButton(status.habit.linkedPackage)
+      if (onStart != null && !status.doneToday) {
+        val minutes = suggestedMinutes(status)
+        TextAction("Start $minutes min", onClick = { onStart(minutes) }, modifier = Modifier.padding(start = 12.dp))
+      }
+    }
+  }
+}
+
+/**
+ * Any other habit gets the same card as the rest, so a new one doesn't look unfinished: its name, and
+ * where the day stands (the next reminder, done, a day off).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TodaysHabit(status: HabitStatus, onLog: () -> Unit, onStart: ((Int) -> Unit)?, modifier: Modifier = Modifier) {
+  DayCard(status.doneToday, modifier) {
+    CardLabel(state = if (status.doneToday) "DONE" else "TODAY")
+    Text(status.habit.name, style = MaterialTheme.typography.headlineSmall)
+    val now = LocalTime.now()
+    val line =
+      when {
+        status.doneToday -> "Done for today."
+        status.frozenToday -> "Frozen today. The streak is safe."
+        status.summary.pausedToday -> Motivation.timeOffLine(status.today, salt = status.habit.id.toInt())
+        else -> status.habit.reminderTimesOn(status.today).firstOrNull { it.isAfter(now) }?.let { "Next reminder at ${formatTime(it)}." } ?: "No more reminders today."
+      }
+    Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+      LogButton(status.doneToday, onLog)
+      OpenLinkedAppButton(status.habit.linkedPackage)
+      if (onStart != null && !status.doneToday) {
+        val minutes = suggestedMinutes(status)
+        TextAction("Start $minutes min", onClick = { onStart(minutes) }, modifier = Modifier.padding(start = 12.dp))
+      }
+    }
+  }
+}
+
+/**
  * Reading's counterpart to today's topic: the book on the go, its author, and one line about where it
  * stands (read yesterday, put down for days, just finished, none yet).
  */
@@ -422,9 +504,9 @@ private fun TodaysPractice(status: HabitStatus, practice: Practice, onLog: () ->
 private fun TodaysBook(status: HabitStatus, book: BookDay, onLog: () -> Unit, onStart: ((Int) -> Unit)?, modifier: Modifier = Modifier) {
   DayCard(status.doneToday, modifier) {
     when {
-      status.doneToday -> CardLabel(state = "DONE TODAY", trail = listOf("BOOK"))
+      status.doneToday -> CardLabel(lead = listOf("BOOK"), state = "DONE")
       book.situation == BookSituation.JUST_FINISHED -> CardLabel(lead = listOf("BOOK"), state = "FINISHED")
-      else -> CardLabel(lead = listOf("TODAY"), state = "BOOK")
+      else -> CardLabel(lead = listOf("BOOK"), state = "TODAY")
     }
     // Title and author read as one block: the author tucked under the title, not a card gap away.
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -531,12 +613,12 @@ private fun TodaysTopic(
           return@Column
         }
         val area = (curriculum.areaById[pick.topic.area]?.name ?: pick.topic.area).uppercase()
-        val state = if (status.doneToday) "DONE TODAY" else pickLabel(pick.kind)
+        val state = if (status.doneToday) "DONE" else pickLabel(pick.kind)
         // The curriculum link sits on the label's line, top right: the actions below stay on one row.
         // Reviews waiting are the reason to open it, so it says how many.
         val due = remember(status.topicMarks, status.today) { TopicPicker.dueReviews(curriculum, status.topicMarks.values.toList(), status.today).size }
         Row(Modifier.fillMaxWidth()) {
-          Box(Modifier.weight(1f).alignByBaseline()) { CardLabel(lead = listOfNotNull("TODAY".takeIf { !status.doneToday }), state = state, trail = listOf(area)) }
+          Box(Modifier.weight(1f).alignByBaseline()) { CardLabel(lead = listOf("TOPIC"), state = state, trail = listOf(area)) }
           TextAction(if (due > 0) "$due due" else "Curriculum", onClick = onCurriculum, vertical = 4.dp, modifier = Modifier.alignByBaseline())
         }
         Text(pick.topic.title, style = MaterialTheme.typography.headlineSmall)
@@ -564,11 +646,7 @@ private fun TodaysTopic(
           val minutesToLog = minutesNow
           when {
             session != null && (sessionPhase == SessionPhase.RUNNING || sessionPhase == SessionPhase.PAUSED) -> {
-              Text(
-                if (sessionPhase == SessionPhase.PAUSED) "IN SESSION · PAUSED" else "IN SESSION · ENDS $ends",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-              )
+              SessionLabel(sessionPhase, ends.orEmpty())
               TextAction("End", onClick = onEndSession, modifier = Modifier.padding(start = 12.dp))
             }
             session != null && sessionPhase == SessionPhase.FINISHED && minutesToLog != null -> {
@@ -683,15 +761,16 @@ private fun EntryRow(
   val dateStyle = DateLabel
   // The dot sits on the middle of the date's capitals, measured from where the date actually lands
   // (its line is taller when it carries the "keep going" button), not guessed.
-  var rowTop by remember { mutableFloatStateOf(0f) }
+  // Kept relative to the row, so scrolling (which moves both) writes the same value and draws nothing.
+  val row = remember { arrayOfNulls<LayoutCoordinates>(1) }
   var dateTop by remember { mutableFloatStateOf(Float.NaN) }
   var dateBaseline by remember { mutableFloatStateOf(0f) }
-  Row(modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClick = onClick).onGloballyPositioned { rowTop = it.positionInRoot().y }) {
+  Row(modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(onClickLabel = if (frozen) "Freeze options" else "Edit session", onClick = onClick).onPlaced { row[0] = it }) {
     Spacer(
       Modifier.width(18.dp).fillMaxHeight().drawBehind {
         val x = 3.dp.toPx()
         val capHeight = dateStyle.fontSize.toPx() * MONO_CAP_HEIGHT
-        val dotY = if (dateTop.isNaN()) 7.dp.toPx() else dateTop - rowTop + dateBaseline - capHeight / 2
+        val dotY = if (dateTop.isNaN()) 7.dp.toPx() else dateTop + dateBaseline - capHeight / 2
         if (!last) drawLine(rail, Offset(x, dotY), Offset(x, size.height + 24.dp.toPx()), strokeWidth = 1.dp.toPx())
         // A freeze kept the streak without adding to it: a hollow dot.
         if (frozen) drawCircle(accent, radius = 2.5.dp.toPx(), center = Offset(x, dotY), style = Stroke(1.dp.toPx()))
@@ -707,7 +786,7 @@ private fun EntryRow(
           style = dateStyle,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           onTextLayout = { dateBaseline = it.firstBaseline },
-          modifier = Modifier.weight(1f).alignByBaseline().onGloballyPositioned { dateTop = it.positionInRoot().y },
+          modifier = Modifier.weight(1f).alignByBaseline().onPlaced { date -> row[0]?.takeIf { it.isAttached }?.let { dateTop = it.localPositionOf(date, Offset.Zero).y } },
         )
         if (onKeepGoing != null) {
           // A text action with no button box: it doesn't make the date line taller than the date. Its

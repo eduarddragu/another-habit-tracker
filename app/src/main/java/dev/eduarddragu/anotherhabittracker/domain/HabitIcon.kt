@@ -9,7 +9,8 @@ enum class HabitIcon {
   DROP,
   MOON,
   DUMBBELL,
-  BOOKMARK;
+  BOOKMARK,
+  HOUSE;
 
   /** What a screen reader calls it: "Book", "Dumbbell". */
   val label: String

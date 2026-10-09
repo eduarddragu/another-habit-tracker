@@ -1,5 +1,18 @@
 package dev.eduarddragu.anotherhabittracker.ui.settings
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.HorizontalDivider
+import dev.eduarddragu.anotherhabittracker.ui.components.gutter
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.compose.animation.animateColorAsState
@@ -27,7 +40,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import dev.eduarddragu.anotherhabittracker.ui.components.Field
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.RadioButton
@@ -61,6 +74,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.eduarddragu.anotherhabittracker.HabitApp
 import dev.eduarddragu.anotherhabittracker.data.Habit
 import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
+import dev.eduarddragu.anotherhabittracker.domain.Chores
 import dev.eduarddragu.anotherhabittracker.domain.HabitIcon
 import dev.eduarddragu.anotherhabittracker.domain.ReminderMessages
 import dev.eduarddragu.anotherhabittracker.domain.ReminderPlan
@@ -107,19 +121,25 @@ class HabitSettingsViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app,
   fun preview(habit: Habit) =
     launchSafely {
       val status = app.repository.status(habit.id)
-      val tone = listOf(Tone.OPENING, Tone.NUDGE, Tone.PUSH, Tone.LAST_CALL)[previewCount++ % 4]
+      val slot = previewCount++ % 4
+      val tone = listOf(Tone.OPENING, Tone.NUDGE, Tone.PUSH, Tone.LAST_CALL)[slot]
       val topic = status?.pick?.topic
+      val today = app.repository.today()
+      val chores = if (Chores.appliesTo(habit.kind, habit.name, habit.icon)) Chores.reminderLine(today, slot) else null
       val text =
         ReminderMessages.text(
           topic?.title ?: habit.name,
           habit.kind,
           tone,
           status?.streak ?: 0,
-          app.repository.today(),
-          previewCount,
-          topic?.hints?.firstOrNull(),
+          today,
+          slot,
+          topic?.hints?.firstOrNull() ?: chores,
+          nudgeBody = chores,
+          slipped = status?.summary?.slipped ?: false,
+          minutes = SessionTimer.defaultMinutes(habit.kind, habit.sessionMinutes),
         )
-      Notifications.show(app, habit, text, tone)
+      Notifications.show(app, habit, text, tone, preview = true)
     }
 
   private var previewCount = 0
@@ -162,11 +182,12 @@ fun HabitSettingsScreen(
   // Title, then the habit itself, then its reminders and the rest, arriving as the page slides in.
   val arrival = rememberArrival(3)
   // Sections 24dp apart, 8dp inside a section, headed by a mono accent label like everywhere else.
-  Column(modifier.verticalScroll(rememberScrollState()).padding(screenPadding()), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+  Column(modifier) {
+  Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(screenPadding()), verticalArrangement = Arrangement.spacedBy(24.dp)) {
     ScreenTitle("Settings", name.ifBlank { habit.name }, Modifier.rise(arrival[0], 16.dp), icon = icon)
     Column(Modifier.rise(arrival[1], 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       SectionLabel("Name and icon")
-      OutlinedTextField(name, { name = it }, label = { Text("Name") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
+      Field(name, { name = it }, label = "Name", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
       IconPicker(icon, onPick = { icon = it })
     }
 
@@ -208,21 +229,35 @@ fun HabitSettingsScreen(
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel("Opens from the reminder")
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-          Text(linkedLabel, style = MaterialTheme.typography.bodyLarge)
-          TextAction("Change", onClick = { pickingApp = true })
+          // A long label ("pkg (not installed)") wraps instead of pushing Change off the row.
+          Text(linkedLabel, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+          TextAction("Change", onClick = { pickingApp = true }, modifier = Modifier.semantics { contentDescription = "Change the app that opens, now $linkedLabel" })
         }
       }
+    }
+  }
 
-      // The page ends on its main action, like the log form.
-      Button(
-        shape = MaterialTheme.shapes.medium,
-        enabled = name.isNotBlank() && !busy,
-        modifier = Modifier.fillMaxWidth(),
-        onClick = { viewModel.save(habit.copy(name = name.trim(), reminderTimes = times, weekendReminderTimes = weekendTimes, linkedPackage = linkedPackage, icon = icon.name, sessionMinutes = sessionMinutes.takeIf { it != SessionTimer.defaultMinutes(habit.kind) })) { onDone("Saved") } },
-      ) {
-        Text("Save")
+  // Save waits in a bar at the bottom, like the log form's, from the first change on: with two
+  // reminder lists the end of the page is far. Nothing changed, nothing to save, and the page is calm.
+  AnimatedVisibility(
+    visible = changed,
+    enter = expandVertically(tween(280, easing = Motion.EaseUi), expandFrom = Alignment.Top) + fadeIn(tween(160, delayMillis = 60)),
+    exit = shrinkVertically(tween(Motion.SHORT, easing = Motion.EaseUi)) + fadeOut(tween(100)),
+  ) {
+    Column {
+      HorizontalDivider()
+      Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)).gutter().padding(vertical = 12.dp)) {
+        Button(
+          shape = MaterialTheme.shapes.medium,
+          enabled = name.isNotBlank() && !busy,
+          modifier = Modifier.fillMaxWidth().height(48.dp),
+          onClick = { viewModel.save(habit.copy(name = name.trim(), reminderTimes = times, weekendReminderTimes = weekendTimes, linkedPackage = linkedPackage, icon = icon.name, sessionMinutes = sessionMinutes.takeIf { it != SessionTimer.defaultMinutes(habit.kind) })) { onDone("Saved.") } },
+        ) {
+          Text("Save")
+        }
       }
     }
+  }
   }
 
   pickingFor?.let { list ->
@@ -270,6 +305,7 @@ private const val WEEKDAYS = "weekdays"
 private const val WEEKEND = "weekend"
 
 /** One list of reminder times, each with the tone it will have, plus adding one. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReminderList(label: String, times: String, onChange: (String) -> Unit, onAdd: () -> Unit, onPreview: (() -> Unit)?) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -282,11 +318,11 @@ private fun ReminderList(label: String, times: String, onChange: (String) -> Uni
           Text(formatTime(time), style = Numerals)
           Text(toneLabel(ReminderPlan.tone(index, parsed.size)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        TextAction("Remove", onClick = { onChange(formatReminderTimes(parsed - time)) })
+        TextAction("Remove", onClick = { onChange(formatReminderTimes(parsed - time)) }, modifier = Modifier.semantics { contentDescription = "Remove the ${formatTime(time)} reminder" })
       }
     }
-    // Adding a time and hearing what a reminder sounds like belong together.
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+    // Adding a time and hearing what a reminder sounds like belong together; with large text they wrap.
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
       if (parsed.size < ReminderScheduler.MAX_SLOTS) OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = onAdd, border = cardOutline()) { Text("Add reminder") }
       if (onPreview != null) TextAction("Preview a reminder", onClick = onPreview)
     }

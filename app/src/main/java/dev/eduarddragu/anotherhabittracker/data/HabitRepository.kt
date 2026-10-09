@@ -201,14 +201,7 @@ class HabitRepository(
 
   suspend fun habits(): List<Habit> = db.habits().all()
 
-  suspend fun status(habitId: Long): HabitStatus? =
-    db.habits().byId(habitId)?.let { habit ->
-      val entries = db.entries().forHabit(habitId)
-      val today = today()
-      val periods = db.timeOff().all().map { it.toPeriod() }
-      val paused = TimeOff.days(periods, today)
-      withContext(Dispatchers.Default) { status(habit, entries, today, paused, periods) }
-    }
+  suspend fun status(habitId: Long): HabitStatus? = statuses().firstOrNull { it.habit.id == habitId }
 
   /**
    * A session for a day that was frozen replaces the freeze: the day was done after all, and this
@@ -221,14 +214,14 @@ class HabitRepository(
     }
 
   /**
-   * "Done" from a notification: logs [entry] unless its day already has a session. Checked in the
-   * same transaction as the write, so two quick taps (or the form saving meanwhile) log only once.
+   * "Done" from a notification: logs [entry] unless its day already has a session, and returns the new
+   * session's id (for Undo), or null when nothing was logged. Checked in the same transaction as the
+   * write, so two quick taps (or the form saving meanwhile) log only once.
    */
-  suspend fun logSessionIfMissing(entry: Entry): Boolean =
+  suspend fun logSessionIfMissing(entry: Entry): Long? =
     db.withTransaction {
-      if (db.entries().forHabit(entry.habitId).any { it.type == EntryType.SESSION && it.day == entry.day }) return@withTransaction false
+      if (db.entries().forHabit(entry.habitId).any { it.type == EntryType.SESSION && it.day == entry.day }) return@withTransaction null
       logSession(entry)
-      true
     }
 
   /**
@@ -237,10 +230,14 @@ class HabitRepository(
    */
   suspend fun freeze(habitId: Long, day: LocalDate): Long? =
     db.withTransaction {
-      if (db.timeOff().all().any { it.toPeriod().contains(day) }) return@withTransaction null
+      val periods = db.timeOff().all().map { it.toPeriod() }
+      if (periods.any { it.contains(day) }) return@withTransaction null
       val records = db.entries().forHabit(habitId)
       val sessions = records.filter { it.type == EntryType.SESSION }.map { it.day }.toSet()
-      val freezes = records.filter { it.type == EntryType.FREEZE }.map { it.day }.toSet()
+      val all = records.filter { it.type == EntryType.FREEZE }.map { it.day }.toSet()
+      // The week's freeze is judged as the summary judges it, so the button and this agree.
+      if (day in all) return@withTransaction null
+      val freezes = Freezes.counted(all, sessions, TimeOff.days(periods, maxOf(today(), day)))
       if (!Freezes.canFreeze(day, sessions, freezes)) return@withTransaction null
       db.entries().insert(Entry(habitId = habitId, day = day, type = EntryType.FREEZE))
     }
@@ -381,7 +378,7 @@ class HabitRepository(
   suspend fun seedIfEmpty() {
     db.withTransaction {
       if (db.habits().count() > 0) return@withTransaction
-      db.habits().insertAll(listOf(STUDY.copy(position = 0), MEDITATION.copy(position = 1), READING.copy(position = 2)))
+      db.habits().insertAll(listOf(STUDY.copy(position = 0), MEDITATION.copy(position = 1), READING.copy(position = 2), CHORES.copy(position = 3)))
     }
   }
 

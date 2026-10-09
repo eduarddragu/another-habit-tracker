@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Notification channels address the chimes by name, which the resource shrinker can't see. -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@raw/reminder_chime,@raw/last_call_chime" />
+    tools:keep="@raw/reminder_chime,@raw/last_call_chime,@raw/session_soft_chime" />

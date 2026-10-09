@@ -8,11 +8,11 @@ import kotlin.random.Random
 object Motivation {
   private val daily =
     listOf(
-      "Nobody is coming to do this for you. Good news: it takes thirty minutes.",
+      "Nobody is coming to do this for you. Good news: it takes {minutes}.",
       "Nobody asked if you felt like it.",
       "Be annoyingly consistent.",
       "Don't negotiate with yourself. Start.",
-      "Thirty minutes. You've spent longer picking a series.",
+      "{Minutes}. You've spent longer picking a series.",
       "Excuses don't count as days.",
       "Do it now and stop thinking about it.",
       "The hard part is the first minute. Go get it over with.",
@@ -42,6 +42,14 @@ object Motivation {
     )
 
   private const val STREAK_LINES_FROM = 3
+
+  /** The day after one missed day that broke a streak: name it once, so it stays one. */
+  private val slippedLines =
+    listOf(
+      "Missed one. Today decides if it's a habit or a hobby.",
+      "Yesterday slipped. Don't make it two.",
+      "A missed day is information, not a verdict. Show up today.",
+    )
 
   /** Time off: no push, no jokes. Gentle, and different from day to day. */
   private val timeOff =
@@ -80,11 +88,14 @@ object Motivation {
 
   /**
    * Same line all day (seeded by the date); a different pool once everything is logged. With a streak
-   * going, about half the days call it out by its length.
+   * going, about half the days call it out by its length. [slipped]: a habit still open today missed
+   * yesterday right after a streak (HabitSummary.slipped). [minutes]: the open habit's usual session,
+   * for the lines that name it ("a few minutes" without).
    */
-  fun line(day: LocalDate, everythingDone: Boolean, streak: Int = 0): String {
+  fun line(day: LocalDate, everythingDone: Boolean, streak: Int = 0, slipped: Boolean = false, minutes: Int? = null): String {
     val random = Random(day.toEpochDay())
     if (everythingDone) return allDone.random(random)
-    return if (streak >= STREAK_LINES_FROM && random.nextBoolean()) streaking.random(random).format(streak) else daily.random(random)
+    if (slipped) return slippedLines.random(random)
+    return if (streak >= STREAK_LINES_FROM && random.nextBoolean()) streaking.random(random).format(streak) else withMinutes(daily.random(random), minutes)
   }
 }

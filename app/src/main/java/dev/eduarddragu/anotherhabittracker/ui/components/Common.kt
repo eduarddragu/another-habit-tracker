@@ -14,12 +14,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -59,6 +62,39 @@ import kotlin.math.min
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) =
   Text(text.uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = modifier)
+
+/**
+ * Every text field: Material's outlined field on the controls' radius (12dp; Material would round it
+ * to 4), with a plain text label.
+ */
+@Composable
+fun Field(
+  value: String,
+  onValueChange: (String) -> Unit,
+  label: String,
+  modifier: Modifier = Modifier,
+  keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+  keyboardActions: KeyboardActions = KeyboardActions.Default,
+  singleLine: Boolean = false,
+  minLines: Int = 1,
+  isError: Boolean = false,
+  suffix: (@Composable () -> Unit)? = null,
+  supportingText: (@Composable () -> Unit)? = null,
+) =
+  OutlinedTextField(
+    value,
+    onValueChange,
+    modifier,
+    label = { Text(label) },
+    suffix = suffix,
+    supportingText = supportingText,
+    isError = isError,
+    keyboardOptions = keyboardOptions,
+    keyboardActions = keyboardActions,
+    singleLine = singleLine,
+    minLines = minLines,
+    shape = MaterialTheme.shapes.medium,
+  )
 
 /**
  * The card of today's job (a study topic, a meditation practice), same rule as the home cards and the
@@ -202,7 +238,7 @@ private class TouchAreaNode(var size: Dp, var grow: Boolean) : Modifier.Node(), 
  * the accent. The parts are given in place, so a habit named like a state word stays muted.
  */
 @Composable
-fun CardLabel(lead: List<String> = emptyList(), state: String? = null, trail: List<String> = emptyList(), modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
+fun CardLabel(modifier: Modifier = Modifier, lead: List<String> = emptyList(), state: String? = null, trail: List<String> = emptyList(), maxLines: Int = Int.MAX_VALUE) {
   val colors = MaterialTheme.colorScheme
   Text(
     buildAnnotatedString {

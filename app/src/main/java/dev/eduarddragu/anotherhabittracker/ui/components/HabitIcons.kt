@@ -25,6 +25,7 @@ val HabitIcon.drawable: Int
       HabitIcon.MOON -> R.drawable.ic_habit_moon
       HabitIcon.DUMBBELL -> R.drawable.ic_habit_dumbbell
       HabitIcon.BOOKMARK -> R.drawable.ic_habit_bookmark
+      HabitIcon.HOUSE -> R.drawable.ic_habit_house
     }
 
 /** Decorative: the habit's name is always next to it, so it has no content description. */

@@ -10,6 +10,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.EnterTransition
+import dev.eduarddragu.anotherhabittracker.domain.Chores
 import dev.eduarddragu.anotherhabittracker.domain.HabitKind
 import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -66,6 +67,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import dev.eduarddragu.anotherhabittracker.domain.Descriptions
 import dev.eduarddragu.anotherhabittracker.reminders.Sessions
 import dev.eduarddragu.anotherhabittracker.ui.components.CardLabel
@@ -111,12 +113,14 @@ import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
 import dev.eduarddragu.anotherhabittracker.domain.Curriculum
 import dev.eduarddragu.anotherhabittracker.domain.Milestones
 import dev.eduarddragu.anotherhabittracker.domain.Motivation
+import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
 import dev.eduarddragu.anotherhabittracker.domain.dayCount
 import dev.eduarddragu.anotherhabittracker.domain.Books
 import dev.eduarddragu.anotherhabittracker.domain.Practices
 import dev.eduarddragu.anotherhabittracker.domain.formatTime
 import dev.eduarddragu.anotherhabittracker.data.reminderTimesOn
 import dev.eduarddragu.anotherhabittracker.theme.Motion
+import dev.eduarddragu.anotherhabittracker.theme.Numerals
 import dev.eduarddragu.anotherhabittracker.theme.NumeralsLarge
 import dev.eduarddragu.anotherhabittracker.theme.fadeThrough
 import dev.eduarddragu.anotherhabittracker.ui.backup.formatSaved
@@ -206,14 +210,15 @@ fun HomeScreen(
   val pulse = rememberLastCallPulse(current.today, current.habits.any { it.summary.dayOpen && lastCall(it, now) != null }, firstRun)
 
   // Three zones down the screen: who and when at the top, the planet in the middle, what to do at the
-  // bottom where the thumb is. When the content outgrows the screen it simply scrolls; when it fits,
-  // the page doesn't move at all (not even the overscroll stretch).
+  // bottom where the thumb is. When the content outgrows the screen it simply scrolls, and stops dead
+  // at either end: no overscroll stretch, the page is meant to feel still. When it fits, it doesn't
+  // move at all.
   BoxWithConstraints(modifier) {
     val scroll = rememberScrollState()
     // Compact cards, and a little less air everywhere, so three habits still fit one screen.
     val compact = current.habits.size >= COMPACT_FROM
     Column(
-      Modifier.verticalScroll(scroll, enabled = scroll.maxValue > 0).heightIn(min = maxHeight).padding(screenPadding(top = 16.dp, bottom = if (compact) 16.dp else 40.dp)),
+      Modifier.verticalScroll(scroll, enabled = scroll.maxValue > 0, overscrollEffect = null).heightIn(min = maxHeight).padding(screenPadding(top = 16.dp, bottom = if (compact) 16.dp else 40.dp)),
       verticalArrangement = Arrangement.SpaceBetween,
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -265,7 +270,11 @@ fun HomeScreen(
         } else {
           // A streak reaching a milestone today takes over the line of the day; time off, everything.
           val milestone = current.habits.filter { it.doneToday }.firstNotNullOfOrNull { Milestones.line(it.streak) }
-          val line = if (paused) Motivation.timeOffLine(current.today) else milestone ?: Motivation.line(current.today, everythingDone, streak)
+          // The day after a slip says so; the minutes are those of the first habit still open.
+          val open = current.habits.firstOrNull { it.summary.dayOpen }?.habit
+          val line =
+            if (paused) Motivation.timeOffLine(current.today)
+            else milestone ?: Motivation.line(current.today, everythingDone, streak, slipped = current.habits.any { it.summary.slipped && it.summary.dayOpen }, minutes = open?.let { SessionTimer.defaultMinutes(it.kind, it.sessionMinutes) })
           Hero(current.today, now, if (paused) "TIME OFF" else "$done OF ${current.habits.size} DONE", line, intro, compact)
         }
       }
@@ -276,7 +285,7 @@ fun HomeScreen(
       val press = remember { MutableInteractionSource() }
       val pressed by press.collectIsPressedAsState()
       val dip by animateFloatAsState(if (pressed && !reduced) 0.97f else 1f, tween(if (pressed) Motion.PRESS else 160, easing = if (pressed) Motion.EasePress else Motion.EaseUi), label = "dip")
-      Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = if (compact) 16.dp else 24.dp, bottom = 8.dp)) {
+      Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)) {
         Box(
           contentAlignment = Alignment.Center,
           modifier =
@@ -284,6 +293,7 @@ fun HomeScreen(
                 scaleX = dip
                 scaleY = dip
               }
+              .semantics { contentDescription = "Focus session" }
               .clickable(interactionSource = press, indication = null, enabled = active == null && study != null, onClickLabel = "Offer a focus session", role = Role.Button) { choosing = !choosing },
         ) {
           Planet(
@@ -300,9 +310,8 @@ fun HomeScreen(
           )
           if (active != null) SessionNumerals(active, clock, Modifier.graphicsLayer { alpha = ((morph.value - 0.5f) * 2f).coerceIn(0f, 1f); translationY = if (reduced) 0f else (1f - alpha) * 8.dp.toPx() })
         }
-        // A fixed slot, so offering the session never pushes the cards around. Tighter with compact
-        // cards, where every dp counts to keep Home on one screen.
-        Box(Modifier.height(if (compact) 40.dp else 64.dp), contentAlignment = Alignment.Center) {
+        // A fixed slot, so offering the session never pushes the cards around.
+        Box(Modifier.height(64.dp), contentAlignment = Alignment.Center) {
           androidx.compose.animation.AnimatedVisibility(
             visible = choosing && active == null && study != null,
             enter = fadeIn(tween(Motion.LIST, easing = Motion.EaseUi)) + slideInVertically(tween(Motion.LIST, easing = Motion.EaseUi)) { it / 4 },
@@ -338,7 +347,7 @@ fun HomeScreen(
           onOpen = onOpen,
           onDiscard = {
             Sessions.clear(app)
-            onUndoable("Session discarded") { Sessions.restore(app, active) }
+            onUndoable("Session discarded.") { Sessions.restore(app, active) }
           },
         )
       } else Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -405,7 +414,8 @@ private fun FooterLabel(name: String, state: String, onClick: () -> Unit) {
     },
     style = MaterialTheme.typography.labelSmall,
     color = MaterialTheme.colorScheme.onSurfaceVariant,
-    modifier = Modifier.touchTarget(Modifier.clickable(role = Role.Button, onClick = onClick)),
+    // Read as "Time off, take some" rather than one run of capitals.
+    modifier = Modifier.semantics { contentDescription = "${name.lowercase().replaceFirstChar(Char::uppercase)}, ${state.lowercase()}" }.touchTarget(Modifier.clickable(role = Role.Button, onClick = onClick)),
   )
 }
 
@@ -449,7 +459,7 @@ private fun Hero(today: LocalDate, now: LocalTime, progress: String, line: Strin
     ) { text ->
       Text(
         text,
-        style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 26.sp, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Medium),
+        style = lineStyle(),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
         modifier = Modifier.widthIn(max = 320.dp),
@@ -528,7 +538,7 @@ private fun HabitSurface(status: HabitStatus, commit: CommitPlayback, appear: ()
         val progress = if (commit.animating(status.today)) commit.fill.value else 1f
         drawRect(if (status.doneToday) lerp(open, warm, progress) else open)
       }
-      .clickable(interaction, indication = null, onClick = onClick)
+      .clickable(interaction, indication = null, onClickLabel = "Open ${status.habit.name}", role = Role.Button, onClick = onClick)
   ) {
     content()
   }
@@ -548,40 +558,66 @@ private fun HabitCard(status: HabitStatus, now: LocalTime, curriculum: Curriculu
   val shelf = status.books
   val book = remember(shelf, status.today, status.doneToday) { shelf?.let { Books.day(it, status.today, status.doneToday, suggestedMinutes(status)) } }
   val bookTitle = book?.title?.takeIf { pick == null && practice == null }
+  // Chores: today's motto, and the state the check to start with asks for.
+  val chores = if (pick == null && practice == null && shelf == null && Chores.appliesTo(status.habit.kind, status.habit.name, status.habit.icon)) Chores.day(status.today) else null
   HabitSurface(status, commit, appear, onClick) {
-    // With three habits or more the cards are compact, so Home still fits one screen: a single-line
-    // title, and the line under it only when it's urgent (the last call).
-    Column(Modifier.padding(if (compact) 16.dp else 20.dp)) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        HabitIconImage(status.habit.resolvedIcon, size = 22.dp, tint = colors.primary)
-        Spacer(Modifier.width(10.dp))
-        val area = pick?.let { curriculum.areaById[it.topic.area]?.name ?: it.topic.area }?.uppercase()
-        val state =
-          when {
-            commit.settled && status.doneToday -> "DONE"
-            status.frozenToday -> "FROZEN"
-            else -> pick?.let { pickLabel(it.kind) }
-          }
-        // The name leads only when the title is something else (the study topic, today's practice, the book).
-        // Muted throughout; the state (new, a review, continuing, done) is in the accent. One line: at a
-        // large font size it ends in an ellipsis rather than mid-word.
-        CardLabel(lead = listOfNotNull(status.habit.name.uppercase().takeIf { pick != null || practice != null || bookTitle != null }), state = state, trail = listOfNotNull(area), maxLines = 1)
+    val area = pick?.let { curriculum.areaById[it.topic.area]?.name ?: it.topic.area }?.uppercase()
+    val state =
+      when {
+        commit.settled && status.doneToday -> "DONE"
+        status.frozenToday -> "FROZEN"
+        else -> pick?.let { pickLabel(it.kind) }
       }
-      Spacer(Modifier.height(if (compact) 10.dp else 14.dp))
-      Text(pick?.topic?.title ?: practice?.title ?: bookTitle ?: status.habit.name, style = MaterialTheme.typography.headlineSmall, maxLines = if (compact) 1 else 3, overflow = TextOverflow.Ellipsis)
-      val firstStep = pick?.topic?.hints?.firstOrNull() ?: practice?.steps?.firstOrNull() ?: book?.line
-      val detail = (if (status.summary.dayOpen && lastCall(status, now) == null) firstStep else null) ?: contextLine(status, now)
-      if (!compact || urgent(status, now)) {
+    // The name leads only when the title is something else (the study topic, today's practice, the book, a chore).
+    // Muted throughout; the state (new, a review, continuing, done) is in the accent. One line: at a
+    // large font size it ends in an ellipsis rather than mid-word.
+    val lead = listOfNotNull(status.habit.name.uppercase().takeIf { pick != null || practice != null || bookTitle != null || chores != null })
+    val title = pick?.topic?.title ?: practice?.title ?: bookTitle ?: chores?.motto ?: status.habit.name
+    val firstStep = pick?.topic?.hints?.firstOrNull() ?: practice?.steps?.firstOrNull() ?: book?.line ?: chores?.lead?.check
+    val detail = (if (status.summary.dayOpen && lastCall(status, now) == null) firstStep else null) ?: contextLine(status, now)
+    // On the tonal card the default grey of a missed day nearly vanishes: one step darker.
+    val missed = colors.outline
+    if (compact) {
+      // From three habits on, two rows so four still fit one screen: the label and the week, then the
+      // title and the streak on its baseline. The line under it only when it's urgent (the last call).
+      Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          HabitIconImage(status.habit.resolvedIcon, size = 22.dp, tint = colors.primary)
+          Spacer(Modifier.width(10.dp))
+          // The area makes way for the week here.
+          CardLabel(lead = lead, state = state, maxLines = 1, modifier = Modifier.weight(1f))
+          Spacer(Modifier.width(8.dp))
+          WeekStrip(status.cells, status.today, cellSize = 12.dp, gap = 4.dp, missed = missed, commit = commit, pulse = pulse, daysOff = status.summary.daysOff)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row {
+          Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).alignByBaseline())
+          Spacer(Modifier.width(12.dp))
+          Streak(status, commit, Modifier.alignByBaseline(), style = Numerals)
+        }
+        if (urgent(status, now)) {
+          Spacer(Modifier.height(4.dp))
+          Text(detail, style = MaterialTheme.typography.bodyMedium, color = colors.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+      }
+    } else {
+      Column(Modifier.padding(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          HabitIconImage(status.habit.resolvedIcon, size = 22.dp, tint = colors.primary)
+          Spacer(Modifier.width(10.dp))
+          CardLabel(lead = lead, state = state, trail = listOfNotNull(area), maxLines = 1)
+        }
+        Spacer(Modifier.height(14.dp))
+        Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(6.dp))
-        Text(detail, style = MaterialTheme.typography.bodyMedium, color = if (urgent(status, now)) colors.primary else colors.onSurfaceVariant, maxLines = 2)
-      }
-      Spacer(Modifier.height(if (compact) 14.dp else 20.dp))
-      // The strip's squares stand on the streak's baseline, not on the bottom of the number's box.
-      Row {
-        // On the tonal card the default grey of a missed day nearly vanishes: one step darker.
-        WeekStrip(status.cells, status.today, cellSize = 14.dp, gap = 5.dp, missed = colors.outline, commit = commit, pulse = pulse, daysOff = status.summary.daysOff, modifier = Modifier.alignBy { it.measuredHeight })
-        Spacer(Modifier.weight(1f))
-        Streak(status, commit, Modifier.alignByBaseline())
+        Text(detail, style = MaterialTheme.typography.bodyMedium, color = if (urgent(status, now)) colors.primary else colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(20.dp))
+        // The strip's squares stand on the streak's baseline, not on the bottom of the number's box.
+        Row {
+          WeekStrip(status.cells, status.today, cellSize = 14.dp, gap = 5.dp, missed = missed, commit = commit, pulse = pulse, daysOff = status.summary.daysOff, modifier = Modifier.alignBy { it.measuredHeight })
+          Spacer(Modifier.weight(1f))
+          Streak(status, commit, Modifier.alignByBaseline())
+        }
       }
     }
   }
@@ -589,13 +625,13 @@ private fun HabitCard(status: HabitStatus, now: LocalTime, curriculum: Curriculu
 
 /** The streak and its unit, rolling to the new value during a commit. Nothing at all at zero: the strip says it. */
 @Composable
-private fun Streak(status: HabitStatus, commit: CommitPlayback, modifier: Modifier = Modifier) {
+private fun Streak(status: HabitStatus, commit: CommitPlayback, modifier: Modifier = Modifier, style: TextStyle = NumeralsLarge) {
   val value = if (commit.rolled) status.streak else commit.commit?.previousStreak ?: status.streak
   if (value == 0) return
   // Number and unit sit on one baseline: aligning their boxes' bottoms left the unit hanging below.
   // Read as one: "12 days in a row".
   Row(modifier.clearAndSetSemantics { contentDescription = Descriptions.streak(value) }) {
-    RollingNumber(value, NumeralsLarge, MaterialTheme.colorScheme.primary, Modifier.alignByBaseline())
+    RollingNumber(value, style, MaterialTheme.colorScheme.primary, Modifier.alignByBaseline())
     Spacer(Modifier.width(4.dp))
     // Same caption as the habit page: the unit in the accent.
     Text(if (value == 1) "DAY" else "DAYS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.alignByBaseline())
@@ -629,7 +665,7 @@ private fun contextLine(status: HabitStatus, now: LocalTime): String {
     last != null -> "Last call was ${formatTime(last)}." + if (status.streak > 0) " ${dayCount(status.streak)} on the line." else ""
     else -> {
       val next = status.habit.reminderTimesOn(status.today).firstOrNull { it.isAfter(now) }
-      if (next != null) "Next reminder at ${formatTime(next)}" else "No more reminders today"
+      if (next != null) "Next reminder at ${formatTime(next)}." else "No more reminders today."
     }
   }
 }

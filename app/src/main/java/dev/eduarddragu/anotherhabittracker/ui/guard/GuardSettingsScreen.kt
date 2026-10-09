@@ -30,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -96,8 +98,13 @@ fun GuardSettingsScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel:
   val apps by viewModel.apps.collectAsStateWithLifecycle()
   // Turned on or off in the system settings, so read again every time the screen comes back.
   var enabled by remember { mutableStateOf(viewModel.serviceEnabled()) }
+  // The minutes used move while a guarded app is in front, so they're read again too.
+  var usage by remember { mutableStateOf(viewModel.usage()) }
+  var week by remember { mutableStateOf(viewModel.weekLine()) }
   LifecycleResumeEffect(Unit) {
     enabled = viewModel.serviceEnabled()
+    usage = viewModel.usage()
+    week = viewModel.weekLine()
     onPauseOrDispose {}
   }
   var choosing by rememberSaveable { mutableStateOf(false) }
@@ -121,12 +128,11 @@ fun GuardSettingsScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel:
       SectionLabel("Status")
       if (enabled) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-          Text(if (guarded.isEmpty()) "On, but watching nothing yet" else "On", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+          Text(if (guarded.isEmpty()) "On, but watching nothing yet." else "On", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
           TextAction("Turn off in Settings", onClick = openSettings)
         }
-        val (used, allowed) = remember(enabled) { viewModel.usage() }
+        val (used, allowed) = usage
         if (allowed > 0) Text("$used of $allowed minutes used today.", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
-        val week = remember(enabled) { viewModel.weekLine() }
         Text(week, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
       } else {
         Text("Off. Android only lets you turn it on by hand: Accessibility, then Downloaded apps, then Scroll guard.", style = MaterialTheme.typography.bodyLarge)
@@ -146,7 +152,7 @@ fun GuardSettingsScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel:
       guarded.forEach { guardedApp ->
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
           Text(guardedApp.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-          TextAction("Remove", onClick = { viewModel.toggle(guardedApp.packageName) })
+          TextAction("Remove", onClick = { viewModel.toggle(guardedApp.packageName) }, modifier = Modifier.semantics { contentDescription = "Stop guarding ${guardedApp.label}" })
         }
       }
       OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { choosing = true }, border = cardOutline()) { Text("Choose apps") }
@@ -175,7 +181,8 @@ fun GuardSettingsScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel:
               Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Checkbox, onValueChange = { viewModel.toggle(candidate.packageName) }).padding(vertical = 4.dp),
               verticalAlignment = Alignment.CenterVertically,
             ) {
-              Checkbox(checked = checked, onCheckedChange = null)
+              // Without its own click the box is 20dp: padded back to a 48dp row, like the linked app's list.
+              Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.padding(14.dp))
               Text(candidate.label)
             }
           }

@@ -34,6 +34,11 @@ data class HabitSummary(
   val yesterdayEmpty: Boolean,
   /** Yesterday was a day off with nothing logged: it can be logged, never frozen (it needs no saving). */
   val yesterdayOff: Boolean = false,
+  /**
+   * Yesterday was missed (nothing logged, not a day off) right after a streak: one slip. Reminders and
+   * Home's line say so, to keep it from becoming two (see Freezes.slipped).
+   */
+  val slipped: Boolean = false,
   val stats: HabitStats,
   /** Heatmap cell for every day that has something logged. */
   val cells: Map<LocalDate, Cell>,
@@ -54,10 +59,11 @@ object HabitSummaries {
     val sessions = records.filter { it.type == EntryType.SESSION }
     val sessionDays = sessions.map { it.day }.toSet()
     // A session and a freeze on the same day (data from before sessions replaced freezes): the
-    // session wins, and the freeze counts neither for the streak nor as this week's freeze.
-    val freezes = records.filter { it.type == EntryType.FREEZE }.map { it.day }.toSet() - sessionDays
+    // session wins, and the freeze counts neither for the streak nor as this week's freeze. A freeze
+    // on a day later put inside time off is a day off: it gives the week's freeze back.
+    val freezes = Freezes.counted(records.filter { it.type == EntryType.FREEZE }.map { it.day }.toSet(), sessionDays, paused)
     // Days off bridge the streak like freezes, without touching the week's freeze.
-    val pausedDays = paused - sessionDays - freezes
+    val pausedDays = paused - sessionDays
     val bridges = freezes + pausedDays
     val cells =
       records
@@ -77,8 +83,9 @@ object HabitSummaries {
       canFreezeToday = today !in pausedDays && Freezes.canFreeze(today, sessionDays, freezes),
       canFreezeYesterday = today.minusDays(1) !in pausedDays && Freezes.canSaveYesterday(today, sessionDays, freezes, bridges),
       // A day off counts as empty here: a session done on it and logged past midnight still needs a way in.
-      yesterdayEmpty = Freezes.yesterdayEmpty(today, sessionDays, freezes, bridges),
+      yesterdayEmpty = Freezes.yesterdayEmpty(today, sessionDays, freezes),
       yesterdayOff = today.minusDays(1) in pausedDays,
+      slipped = Freezes.slipped(today, sessionDays, bridges),
       stats = Stats.of(sessions.map { Session(it.day, it.score, it.minutes) }, bridges, today),
       cells = cells,
       daysOff = pausedDays,

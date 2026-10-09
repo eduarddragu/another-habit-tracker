@@ -7,6 +7,7 @@ package dev.eduarddragu.anotherhabittracker.domain
 object Milestones {
   private val lines =
     mapOf(
+      3 to "Three days. That's a pattern now.",
       7 to "A week straight. That's a habit starting.",
       14 to "Two weeks. The excuses are running out of material.",
       30 to "Thirty days. This is just what you do now.",
