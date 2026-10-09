@@ -9,6 +9,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.ui.layout.LastBaseline
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import dev.eduarddragu.anotherhabittracker.domain.Descriptions
+import dev.eduarddragu.anotherhabittracker.ui.components.opticalStart
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,6 +51,7 @@ import dev.eduarddragu.anotherhabittracker.reminders.resolveLinkedApp
 import dev.eduarddragu.anotherhabittracker.theme.AnotherHabitTrackerTheme
 import dev.eduarddragu.anotherhabittracker.theme.Motion
 import dev.eduarddragu.anotherhabittracker.theme.NumeralsDisplay
+import dev.eduarddragu.anotherhabittracker.ui.components.CardLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.DayCard
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
@@ -169,6 +177,7 @@ private fun doItLabel(open: List<HabitStatus>): String {
   return if (habit.kind == HabitKind.STUDY) "Start ${habit.name}" else "Log ${habit.name}"
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GuardScreen(content: GuardContent, onDoIt: () -> Unit, onGrant: () -> Unit, onLeave: () -> Unit) {
   BackHandler(onBack = onLeave)
@@ -194,23 +203,29 @@ private fun GuardScreen(content: GuardContent, onDoIt: () -> Unit, onGrant: () -
         Text(content.text.body, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
       }
       if (content.streak > 0) {
-        Row(Modifier.rise(arrival[1], 16.dp)) {
-          Text(content.streak.toString(), style = NumeralsDisplay, color = colors.primary, modifier = Modifier.alignByBaseline())
+        // The streak as on the habit's page: the unit in the accent, the rest muted, read as one value.
+        val number = content.streak.toString()
+        Row(Modifier.rise(arrival[1], 16.dp).clearAndSetSemantics { contentDescription = "${Descriptions.streak(content.streak)}, gone at midnight" }) {
+          Text(number, style = NumeralsDisplay, color = colors.primary, modifier = Modifier.alignBy(LastBaseline).opticalStart(number, NumeralsDisplay))
           Spacer(Modifier.width(12.dp))
-          Text(if (content.streak == 1) "DAY, GONE AT MIDNIGHT" else "DAYS, GONE AT MIDNIGHT", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant, modifier = Modifier.alignByBaseline())
+          Column(Modifier.alignBy(LastBaseline)) {
+            Text(if (content.streak == 1) "DAY" else "DAYS", style = MaterialTheme.typography.labelMedium, color = colors.primary)
+            Text("GONE AT MIDNIGHT", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+          }
         }
       }
       if (topic != null) {
         DayCard(done = false, modifier = Modifier.rise(arrival[2], 16.dp)) {
-          Text("TODAY'S TOPIC", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
-          Text(topic.title, style = MaterialTheme.typography.titleLarge)
+          CardLabel(lead = listOf("TOPIC"), state = "TODAY")
+          Text(topic.title, style = MaterialTheme.typography.headlineSmall)
         }
       }
     }
     Column(Modifier.fillMaxWidth().padding(top = 16.dp).rise(arrival[3], 16.dp)) {
       Button(shape = MaterialTheme.shapes.medium, onClick = onDoIt, modifier = Modifier.fillMaxWidth()) { Text(doItLabel(content.open)) }
       Spacer(Modifier.height(4.dp))
-      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+      // Leaving on the left, more time on the right; with large text the second wraps under the first.
+      FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         TextAction("Close ${content.appName}", onClick = onLeave, color = colors.onSurfaceVariant)
         TextAction(if (wait > 0) "${content.grantLabel} ($wait)" else content.grantLabel, onClick = onGrant, enabled = wait == 0)
       }

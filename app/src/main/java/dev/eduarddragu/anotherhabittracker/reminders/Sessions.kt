@@ -6,11 +6,15 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import dev.eduarddragu.anotherhabittracker.HabitApp
 import dev.eduarddragu.anotherhabittracker.domain.FocusSession
+import dev.eduarddragu.anotherhabittracker.domain.SessionKind
 import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
 import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
 import java.time.LocalDate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Every change to the focus session goes through here: the store, then the notification (a countdown
@@ -18,8 +22,14 @@ import java.time.LocalDate
  * notification's chronometer counts by itself and the alarm finishes the session.
  */
 object Sessions {
-  fun start(app: HabitApp, habitId: Long, habitName: String, topicId: String?, day: LocalDate, minutes: Int) =
-    apply(app) { _ -> SessionTimer.start(habitId, habitName, topicId, day, minutes, app.sessions.now()) }
+  /**
+   * [kind] is taken from the habit when not given: the statuses the screen that started it shows are
+   * cached, and a session with a topic is study either way.
+   */
+  fun start(app: HabitApp, habitId: Long, habitName: String, topicId: String?, day: LocalDate, minutes: Int, kind: SessionKind? = null) {
+    val resolved = kind ?: app.repository.cachedStatus(habitId)?.habit?.let { SessionKind.of(it.kind, it.name, it.icon, it.linkedPackage) } ?: SessionKind.guess(topicId)
+    apply(app) { _ -> SessionTimer.start(habitId, habitName, topicId, day, minutes, app.sessions.now(), resolved) }
+  }
 
   fun pause(app: HabitApp) = change(app) { it.pause(app.sessions.now()) }
 
@@ -114,20 +124,35 @@ object Sessions {
   private const val REQUEST_ALARM = 910_000
 }
 
-/** The end alarm and the notification's buttons. */
+/**
+ * The end alarm and the notification's buttons. The work (preferences, alarm, notification, and on a
+ * cold start the curriculum) runs off the main thread, one intent at a time in the order they came, so
+ * a quick Pause then Resume can't land the other way round.
+ */
 class SessionReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     val app = context.applicationContext as HabitApp
-    when (intent.action) {
-      ACTION_END -> Sessions.end(app)
-      ACTION_PAUSE -> Sessions.pause(app)
-      ACTION_RESUME -> Sessions.resume(app)
-      ACTION_EXTEND -> Sessions.extend(app)
-      ACTION_HIDE -> Sessions.hide(app)
+    val pending = goAsync()
+    app.appScope.launch(inOrder) {
+      try {
+        when (intent.action) {
+          ACTION_END -> Sessions.end(app)
+          ACTION_PAUSE -> Sessions.pause(app)
+          ACTION_RESUME -> Sessions.resume(app)
+          ACTION_EXTEND -> Sessions.extend(app)
+          ACTION_HIDE -> Sessions.hide(app)
+        }
+      } catch (error: Exception) {
+        Log.e(HabitApp.TAG, "SessionReceiver failed", error)
+      } finally {
+        pending.finish()
+      }
     }
   }
 
   companion object {
+    private val inOrder = Dispatchers.Default.limitedParallelism(1)
+
     const val ACTION_END = "dev.eduarddragu.anotherhabittracker.SESSION_END"
     const val ACTION_PAUSE = "dev.eduarddragu.anotherhabittracker.SESSION_PAUSE"
     const val ACTION_RESUME = "dev.eduarddragu.anotherhabittracker.SESSION_RESUME"

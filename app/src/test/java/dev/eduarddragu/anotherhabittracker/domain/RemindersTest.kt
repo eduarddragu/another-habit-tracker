@@ -128,4 +128,19 @@ class RemindersTest {
     // After a timezone change the day is the phone's current one: 00:10 in Rome is still the 10th in London.
     assertFalse(ReminderPlan.tooLate(at("2026-10-10", "23:50"), at("2026-10-11", "00:10").withZoneSameInstant(ZoneId.of("Europe/London"))))
   }
+
+  @Test
+  fun theDayAfterASlipSaysSoAndMinutesFollowTheHabit() {
+    val day = LocalDate.of(2026, 10, 7)
+    val opening = ReminderMessages.text("Chores", HabitKind.SIMPLE, Tone.OPENING, 0, day, 0, slipped = true)
+    assertTrue("No streak yet" !in opening.body)
+    val last = ReminderMessages.text("Chores", HabitKind.SIMPLE, Tone.LAST_CALL, 0, day, 2, slipped = true)
+    assertTrue(last.body.contains("Chores") && ("Missed yesterday" in last.body || "blip" in last.body))
+    val nudges = (0L..40L).flatMap { d -> (1..2).map { ReminderMessages.text("Graphs", HabitKind.STUDY, Tone.NUDGE, 3, day.plusDays(d), it, minutes = 45).body } }
+    assertTrue(nudges.none { "thirty" in it.lowercase() || "{" in it })
+    assertTrue(nudges.any { "45 minutes" in it })
+  }
+
+  @Test
+  fun threeDaysIsTheFirstMilestone() = assertTrue(Milestones.line(3)!!.isNotBlank())
 }

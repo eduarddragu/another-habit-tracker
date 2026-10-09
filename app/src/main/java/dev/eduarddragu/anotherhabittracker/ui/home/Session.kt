@@ -1,5 +1,14 @@
 package dev.eduarddragu.anotherhabittracker.ui.home
 
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.widthIn
+import dev.eduarddragu.anotherhabittracker.domain.Books
+import dev.eduarddragu.anotherhabittracker.domain.Chores
+import dev.eduarddragu.anotherhabittracker.domain.Practices
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -122,7 +131,7 @@ fun SessionNumerals(session: FocusSession, now: () -> Long, modifier: Modifier =
     }
   // Paused, the number dims (the grey arc and the header say why); the caption stays dark ink, since
   // accent on butter is too faint for 10sp.
-  val dim by animateFloatAsState(if (phase == SessionPhase.PAUSED) 0.45f else 1f, tween(Motion.LONG, easing = Motion.EaseUi), label = "dim")
+  val dim by animateFloatAsState(if (phase == SessionPhase.PAUSED) 0.6f else 1f, tween(Motion.LONG, easing = Motion.EaseUi), label = "dim")
   // Part of a fixed-size graphic (the disc doesn't grow with the font size), so the numbers don't
   // either: at 200% they would spill off the disc.
   val density = LocalDensity.current
@@ -178,9 +187,18 @@ fun SessionCard(
       else -> "TOO SHORT"
     }
     CardLabel(lead = listOf(status?.habit?.name?.uppercase() ?: session.habitName.uppercase()), state = state, trail = listOfNotNull(topic?.area?.let { curriculum.areaById[it]?.name?.uppercase() }))
-    // A reading session keeps its book in view, as a study one keeps its topic.
-    Text(topic?.title ?: status?.books?.current?.title ?: (status?.habit?.name ?: "Session"), style = MaterialTheme.typography.headlineSmall)
-    topic?.hints?.takeIf { it.isNotEmpty() }?.let { NumberedSteps(it, startDelay = 120L) }
+    // Starting sends the page back here, so the plan for the session stays in view while it runs: the
+    // topic and its questions, today's practice and its steps, the chores and their checks, the book
+    // and its line.
+    val habit = status?.habit
+    val practice = if (topic == null && habit != null && Practices.appliesTo(habit.name, habit.linkedPackage)) Practices.forDay(session.day) else null
+    val chores = if (topic == null && practice == null && habit != null && Chores.appliesTo(habit.kind, habit.name, habit.icon)) Chores.day(session.day) else null
+    val shelf = status?.books?.takeIf { topic == null && practice == null && chores == null }
+    val book = remember(shelf, session.day) { shelf?.let { Books.day(it, session.day, status.doneToday, suggestedMinutes(status)) } }
+    Text(topic?.title ?: practice?.title ?: chores?.motto ?: shelf?.current?.title ?: (habit?.name ?: "Session"), style = MaterialTheme.typography.headlineSmall)
+    val steps = topic?.hints ?: practice?.steps ?: chores?.checks?.map { it.check }
+    steps?.takeIf { it.isNotEmpty() }?.let { NumberedSteps(it, startDelay = 120L) }
+    if (book != null && shelf?.current != null) Text(book.line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
       when (phase) {
         SessionPhase.RUNNING -> {
@@ -212,30 +230,45 @@ fun SessionHeader(session: FocusSession, now: () -> Long, modifier: Modifier = M
   val line by remember(session, now) { derivedStateOf { SessionTimer.line(session, now()) } }
   val ends by remember(session, now) { derivedStateOf { endsAtClock(session, now()) } }
   Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-    val label =
-      when (phase) {
-        SessionPhase.RUNNING -> "IN SESSION · ENDS $ends"
-        SessionPhase.PAUSED -> "IN SESSION · PAUSED"
-        SessionPhase.FINISHED -> "SESSION OVER"
-      }
-    // The state in the accent, as on every card label.
-    Text(label, style = MaterialTheme.typography.labelMedium, color = if (phase == SessionPhase.RUNNING) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+    SessionLabel(phase, ends)
+    // The same voice as the line of the day it replaces: only the planet changes scale.
     Text(
       line,
-      style = MaterialTheme.typography.titleLarge,
-      color = MaterialTheme.colorScheme.onSurface,
+      style = lineStyle(),
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
       textAlign = TextAlign.Center,
-      modifier = Modifier.padding(top = 16.dp),
+      modifier = Modifier.padding(top = 16.dp).widthIn(max = 320.dp),
     )
   }
 }
 
+/** Home's line role, under the greeting or the session: the serif italic, small and muted. */
+@Composable
+@ReadOnlyComposable
+internal fun lineStyle(): TextStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 26.sp, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Medium)
+
+/**
+ * Where a session stands, as a card label: IN SESSION, then the state (now, paused) in the accent and
+ * when it ends. Shared by Home's header and the habit page.
+ */
+@Composable
+fun SessionLabel(phase: SessionPhase, ends: String, modifier: Modifier = Modifier) =
+  when (phase) {
+    SessionPhase.RUNNING -> CardLabel(lead = listOf("IN SESSION"), state = "NOW", trail = listOf("ENDS $ends"), modifier = modifier)
+    SessionPhase.PAUSED -> CardLabel(lead = listOf("IN SESSION"), state = "PAUSED", modifier = modifier)
+    SessionPhase.FINISHED -> CardLabel(state = "SESSION OVER", modifier = modifier)
+  }
+
 /**
  * Starts a session on a habit and today's topic, from Home or from the topic card. The day comes from
- * the clock: just after midnight the shown status can still be yesterday's until the minute poll moves.
+ * the clock: just after midnight the shown status can still be yesterday's until the minute poll moves,
+ * and then its topic is yesterday's too, so the session starts without one (the log form falls back to
+ * the day's pick).
  */
-fun startSession(app: HabitApp, status: HabitStatus, minutes: Int) =
-  Sessions.start(app, status.habit.id, status.habit.name, status.pick?.topic?.id, app.repository.today(), minutes)
+fun startSession(app: HabitApp, status: HabitStatus, minutes: Int) {
+  val today = app.repository.today()
+  Sessions.start(app, status.habit.id, status.habit.name, status.pick?.topic?.id?.takeIf { status.today == today }, today, minutes)
+}
 
 /** A session's length for [status]'s habit: one tap, no choosing. */
 fun suggestedMinutes(status: HabitStatus): Int = SessionTimer.defaultMinutes(status.habit.kind, status.habit.sessionMinutes)

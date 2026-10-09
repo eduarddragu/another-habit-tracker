@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -34,12 +35,20 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import dev.eduarddragu.anotherhabittracker.ui.components.Field
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import dev.eduarddragu.anotherhabittracker.domain.Backups
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -59,6 +68,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
@@ -190,10 +201,13 @@ fun LogScreen(
   var module by rememberSaveable { mutableStateOf(current.books?.current?.author.orEmpty().takeIf { reading && !editing }.orEmpty()) }
   var finished by rememberSaveable { mutableStateOf(false) }
   var details by rememberSaveable { mutableStateOf(false) }
+  // A log from a finished focus session takes the topic it was started on: the pick can have moved
+  // since (midnight, "keep going", "I know this").
+  val sessionTopic = remember { app.sessions.session.value?.takeIf { prefillMinutes != null && !editing && it.habitId == habit.id }?.topicId }
   // Study sessions default to today's pick.
-  var topicId by rememberSaveable { mutableStateOf(current.pick?.topic?.id) }
-  // Once the topic is changed by hand, the day no longer sets it.
-  var topicChosen by rememberSaveable { mutableStateOf(false) }
+  var topicId by rememberSaveable { mutableStateOf(sessionTopic ?: current.pick?.topic?.id) }
+  // Once the topic is changed by hand (or came with the session), the day no longer sets it.
+  var topicChosen by rememberSaveable { mutableStateOf(sessionTopic != null) }
   // Editing: the form starts from the session as it was logged.
   var editDay by rememberSaveable { mutableStateOf<Long?>(null) }
   var editLoggedAt by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -231,6 +245,7 @@ fun LogScreen(
     dayTopicLoaded = true
   }
   var pickingTopic by rememberSaveable { mutableStateOf(false) }
+  var typingMinutes by rememberSaveable { mutableStateOf(false) }
 
   // Only a note is worth asking about: scores and minutes are one tap to pick again.
   BackHandler(enabled = loaded && note.isNotBlank() && note.trim() != savedNote.trim() && !busy) { confirmingBack = true }
@@ -259,15 +274,15 @@ fun LogScreen(
     if (editing) {
       val original = entryId ?: return
       val day = editDay?.let(LocalDate::ofEpochDay) ?: return
-      viewModel.update(entry.copy(id = original, day = day, loggedAt = editLoggedAt ?: entry.loggedAt), finishedBook) { onDone("Session updated") }
+      viewModel.update(entry.copy(id = original, day = day, loggedAt = editLoggedAt ?: entry.loggedAt), finishedBook) { onDone("Session updated.") }
       return
     }
     viewModel.save(entry, finishedBook) {
       onDone(
         when {
           day == today -> null
-          day == today.minusDays(1) -> "Logged for yesterday"
-          else -> "Logged for ${day.format(EDIT_DAY_FORMAT)}"
+          day == today.minusDays(1) -> "Logged for yesterday."
+          else -> "Logged for ${day.format(EDIT_DAY_FORMAT)}."
         }
       )
     }
@@ -333,20 +348,20 @@ fun LogScreen(
           // own, another title clears it. One typed by hand stays.
           val shelf = current.books
           fun authorOf(title: String) = shelf?.let { listOfNotNull(it.current) + it.finished }?.firstOrNull { Books.key(it.title) == Books.key(title) }?.author.orEmpty()
-          OutlinedTextField(
+          Field(
             track,
             { title ->
               if (module == authorOf(track)) module = authorOf(title)
               track = title
             },
-            label = { Text("Book") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
+            label = "Book", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
           AnimatedVisibility(
             visible = track.isNotBlank(),
             enter = expandVertically(tween(280, easing = Motion.EaseUi), expandFrom = Alignment.Top) + fadeIn(tween(160, delayMillis = 60)),
             exit = shrinkVertically(tween(Motion.SHORT, easing = Motion.EaseUi)) + fadeOut(tween(100)),
           ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-              OutlinedTextField(module, { module = it }, label = { Text("Author (optional)") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
+              Field(module, { module = it }, label = "Author (optional)", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
               FilterChip(
                 selected = finished,
                 onClick = {
@@ -363,10 +378,11 @@ fun LogScreen(
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("How long?", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          // Minutes are optional and picked from presets only: a tap selects, a second tap clears.
+          // Minutes are optional and picked from presets: a tap selects, a second tap clears.
           // A session's real length stays as it was, before the presets, rather than rounded into one.
           val presets = SessionTimer.presets(habit.kind, habit.sessionMinutes)
-          (listOfNotNull(prefillMinutes?.takeIf { it !in presets }) + presets).forEach { preset ->
+          val chips = listOfNotNull(prefillMinutes?.takeIf { it !in presets }) + presets
+          chips.forEach { preset ->
             FilterChip(
               selected = minutes == preset,
               onClick = {
@@ -376,10 +392,29 @@ fun LogScreen(
               label = { Text("$preset min") },
             )
           }
+          // Anything else is typed by hand (a long day, a session edited later); once set, the chip
+          // shows it and a tap changes it.
+          val custom = minutes?.takeIf { it !in chips }
+          // Filled in the accent like Log, chosen or not: the label says which. It opens a dialog rather
+          // than toggling, so TalkBack hears a button, not a checkbox.
+          val accent = MaterialTheme.colorScheme.primary
+          val onAccent = MaterialTheme.colorScheme.onPrimary
+          FilterChip(
+            selected = custom != null,
+            onClick = { typingMinutes = true },
+            modifier = Modifier.semantics {
+              role = Role.Button
+              onClick(label = "Type the minutes") { typingMinutes = true; true }
+              if (custom != null) stateDescription = "Selected"
+            },
+            colors = FilterChipDefaults.filterChipColors(containerColor = accent, labelColor = onAccent, selectedContainerColor = accent, selectedLabelColor = onAccent),
+            border = null,
+            label = { Text(custom?.let { "$it min" } ?: "Custom") },
+          )
         }
       }
 
-      OutlinedTextField(note, { note = it }, label = { Text("Notes") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), minLines = 2, modifier = Modifier.fillMaxWidth())
+      Field(note, { note = it }, label = "Notes", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), minLines = 2, modifier = Modifier.fillMaxWidth())
 
       if (study) {
         // Optional study details stay folded until asked for.
@@ -401,9 +436,9 @@ fun LogScreen(
             exit = shrinkVertically(tween(Motion.SHORT, easing = Motion.EaseUi)) + fadeOut(tween(100)),
           ) {
             Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-              OutlinedTextField(extraTopics, { extraTopics = it }, label = { Text("Other topics studied") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), modifier = Modifier.fillMaxWidth())
-              OutlinedTextField(track, { track = it }, label = { Text("Course or book") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
-              OutlinedTextField(module, { module = it }, label = { Text("Module or chapter") }, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), singleLine = true, modifier = Modifier.fillMaxWidth())
+              Field(extraTopics, { extraTopics = it }, label = "Other topics studied", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), modifier = Modifier.fillMaxWidth())
+              Field(track, { track = it }, label = "Course or book", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
+              Field(module, { module = it }, label = "Module or chapter", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), singleLine = true, modifier = Modifier.fillMaxWidth())
             }
           }
         }
@@ -412,7 +447,7 @@ fun LogScreen(
       if (current.canFreezeToday && !editing && fixedDay == null) {
         TextAction(
           "Freeze today instead (once a week)",
-          onClick = { viewModel.freezeToday(LocalDate.ofEpochDay(openedOn)) { id -> if (id != null) onDoneUndoable("Today is frozen") { viewModel.unfreeze(id) } else onDone("Freeze not available") } },
+          onClick = { viewModel.freezeToday(LocalDate.ofEpochDay(openedOn)) { id -> if (id != null) onDoneUndoable("Today is frozen.") { viewModel.unfreeze(id) } else onDone("Freeze not available.") } },
           enabled = !busy,
         )
       }
@@ -425,12 +460,22 @@ fun LogScreen(
         enter = expandVertically(tween(Motion.SHORT, easing = Motion.EaseUi)) + fadeIn(tween(Motion.SHORT)),
         exit = shrinkVertically(tween(Motion.SHORT, easing = Motion.EaseUi)) + fadeOut(tween(120)),
       ) {
-        Text("Pick a score to save", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+        Text("Pick a score to save.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
       }
       // The button reads back what will be saved.
       val summary =
         listOfNotNull(if (editing) "Save changes" else "Save", score?.takeIf { study }?.let { "$it/5" }, minutes?.let { "$it min" }, "finished".takeIf { reading && finished && track.isNotBlank() }).joinToString(" · ")
-      Button(shape = MaterialTheme.shapes.medium, enabled = canSave, modifier = Modifier.fillMaxWidth(), onClick = ::save) { Text(summary) }
+      // Waiting for a score it stays warm, so the commit still reads as the way out (and outranks the
+      // chips, the Custom one included); only the text goes quiet.
+      Button(
+        shape = MaterialTheme.shapes.medium,
+        enabled = canSave,
+        colors = ButtonDefaults.buttonColors(disabledContainerColor = MaterialTheme.colorScheme.primaryContainer, disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+        onClick = ::save,
+      ) {
+        Text(summary)
+      }
     }
   }
 
@@ -443,13 +488,26 @@ fun LogScreen(
         TextButton(
           onClick = {
             confirmingDelete = false
-            viewModel.delete(entryId) { onDone("Session deleted") }
+            viewModel.delete(entryId) { onDone("Session deleted.") }
           }
         ) {
           Text("Delete")
         }
       },
       dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } },
+    )
+  }
+
+  if (typingMinutes) {
+    CustomMinutesDialog(
+      // A preset stays out of the field: the dialog only edits what it set.
+      initial = minutes?.takeIf { it !in listOfNotNull(prefillMinutes) + SessionTimer.presets(habit.kind, habit.sessionMinutes) },
+      onSet = {
+        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+        minutes = it
+        typingMinutes = false
+      },
+      onDismiss = { typingMinutes = false },
     )
   }
 
@@ -533,7 +591,7 @@ private fun TopicDialog(topics: List<Topic>, onDismiss: () -> Unit, onPick: (Str
     title = { Text("Topic") },
     text = {
       Column {
-        OutlinedTextField(query, { query = it }, label = { Text("Search") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Field(query, { query = it }, label = "Search", singleLine = true, modifier = Modifier.fillMaxWidth())
         LazyColumn(Modifier.heightIn(max = 400.dp)) {
           item { Text("None", Modifier.fillMaxWidth().clickable { onPick(null) }.padding(vertical = 10.dp)) }
           items(shown, key = { it.id }) { topic ->
@@ -542,5 +600,37 @@ private fun TopicDialog(topics: List<Topic>, onDismiss: () -> Unit, onPick: (Str
         }
       }
     },
+  )
+}
+
+/** Minutes typed by hand: whole minutes up to a day; an empty field clears them. */
+@Composable
+private fun CustomMinutesDialog(initial: Int?, onSet: (Int?) -> Unit, onDismiss: () -> Unit) {
+  var text by rememberSaveable { mutableStateOf(initial?.toString().orEmpty()) }
+  val value = SessionTimer.customMinutes(text)
+  // An empty field only clears a value the dialog set; with nothing to clear there is nothing to set.
+  val valid = if (text.isBlank()) initial != null else value != null
+  val focus = remember { FocusRequester() }
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text("How many minutes?") },
+    text = {
+      // Asked from inside the dialog's window, once the field is in it.
+      LaunchedEffect(Unit) { focus.requestFocus() }
+      Field(
+        text,
+        { typed -> text = typed.filter(Char::isDigit).take(4) },
+        label = "Minutes",
+        suffix = { Text("min") },
+        isError = text.isNotBlank() && value == null,
+        supportingText = { Text("From 1 to ${Backups.MAX_MINUTES}, a whole day.") },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { if (valid) onSet(value) }),
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().focusRequester(focus),
+      )
+    },
+    confirmButton = { TextButton(onClick = { onSet(value) }, enabled = valid) { Text(if (text.isBlank() && initial != null) "Clear" else "Set") } },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
   )
 }

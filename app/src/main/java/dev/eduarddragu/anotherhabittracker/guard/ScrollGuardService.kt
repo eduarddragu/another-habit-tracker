@@ -56,6 +56,8 @@ class ScrollGuardService : AccessibilityService() {
           // USER_PRESENT follows. With the keyguard up, USER_PRESENT comes once it's dismissed.
           Intent.ACTION_SCREEN_ON -> if (!getSystemService(KeyguardManager::class.java).isKeyguardLocked) run(tracker.onScreenOn())
           Intent.ACTION_DATE_CHANGED -> run(tracker.onDayChanged())
+          // Another keyboard picked, or apps (keyboards among them) installed or removed.
+          Intent.ACTION_INPUT_METHOD_CHANGED, Intent.ACTION_PACKAGE_ADDED, Intent.ACTION_PACKAGE_REMOVED -> keyboards = null
         }
       }
     }
@@ -68,6 +70,15 @@ class ScrollGuardService : AccessibilityService() {
         addAction(Intent.ACTION_SCREEN_ON)
         addAction(Intent.ACTION_USER_PRESENT)
         addAction(Intent.ACTION_DATE_CHANGED)
+        addAction(Intent.ACTION_INPUT_METHOD_CHANGED)
+      },
+    )
+    registerReceiver(
+      screen,
+      IntentFilter().apply {
+        addAction(Intent.ACTION_PACKAGE_ADDED)
+        addAction(Intent.ACTION_PACKAGE_REMOVED)
+        addDataScheme("package")
       },
     )
     if (!getSystemService(PowerManager::class.java).isInteractive) run(tracker.onScreenOff())
@@ -91,8 +102,8 @@ class ScrollGuardService : AccessibilityService() {
     if (className == GuardActivity::class.java.name) return
     // Only an activity coming up changes the app in front: a dialog, a popup or another app's floating
     // window (the share sheet, chat heads) leaves no event behind when it goes, so taking it for a
-    // change would stop the count until the next real one. Cheapest first: the activity check is
-    // cached, the keyboard one asks the system.
+    // change would stop the count until the next real one. Both checks are cached, so a window change
+    // costs no call to the system once an activity has been seen.
     if (pkg == SYSTEM_UI || !isActivity(pkg, className) || isKeyboard(pkg)) return
     run(tracker.onFront(pkg, event.eventTime))
   }
@@ -127,19 +138,40 @@ class ScrollGuardService : AccessibilityService() {
   }
 
   /**
-   * Read each time: a keyboard installed after the service started is still a keyboard. The current
-   * one is checked too, in case the list is filtered by package visibility.
+   * The keyboards' packages, read again when a keyboard is picked or an app installed or removed, and
+   * at least every few minutes in case a broadcast was missed. The current one is included, in case the
+   * list is filtered by package visibility.
    */
-  private fun isKeyboard(pkg: String): Boolean =
-    Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)?.startsWith("$pkg/") == true ||
-      getSystemService(InputMethodManager::class.java)?.inputMethodList?.any { it.packageName == pkg } == true
+  private var keyboards: Set<String>? = null
+  private var keyboardsAt = 0L
 
-  private val activities = HashMap<String, Boolean>()
+  private fun isKeyboard(pkg: String): Boolean {
+    val now = SystemClock.elapsedRealtime()
+    val known = keyboards?.takeIf { now - keyboardsAt < KEYBOARDS_MAX_AGE }
+    val current =
+      known
+        ?: (getSystemService(InputMethodManager::class.java)?.inputMethodList.orEmpty().map { it.packageName } +
+            listOfNotNull(Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)?.substringBefore('/')))
+          .toSet()
+          .also {
+            keyboards = it
+            keyboardsAt = now
+          }
+    return pkg in current
+  }
+
+  /** Whether a window's class is an activity, per class seen; bounded, the service lives as long as the process. */
+  private val activities =
+    object : LinkedHashMap<String, Boolean>(64, 0.75f, true) {
+      override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean = size > MAX_ACTIVITIES
+    }
 
   private fun isActivity(pkg: String, className: String): Boolean =
     activities.getOrPut("$pkg/$className") { runCatching { packageManager.getActivityInfo(ComponentName(pkg, className), 0) }.isSuccess }
 
   private companion object {
     const val SYSTEM_UI = "com.android.systemui"
+    const val KEYBOARDS_MAX_AGE = 5 * 60_000L
+    const val MAX_ACTIVITIES = 256
   }
 }

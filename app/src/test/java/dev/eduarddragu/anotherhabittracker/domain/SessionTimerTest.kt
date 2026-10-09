@@ -3,6 +3,7 @@ package dev.eduarddragu.anotherhabittracker.domain
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionTimerTest {
@@ -75,6 +76,51 @@ class SessionTimerTest {
     assertEquals(listOf(10, 20, 30), SessionTimer.presets(HabitKind.SIMPLE, 20))
     assertEquals(listOf(15, 30, 45), SessionTimer.presets(HabitKind.STUDY, 30))
     assertEquals(listOf(5, 10), SessionTimer.presets(HabitKind.SIMPLE, 5))
+  }
+
+  @Test
+  fun customMinutesAreWholeMinutesUpToADay() {
+    assertEquals(120, SessionTimer.customMinutes(" 120 "))
+    assertEquals(1440, SessionTimer.customMinutes("1440"))
+    assertNull(SessionTimer.customMinutes(""))
+    assertNull(SessionTimer.customMinutes("0"))
+    assertNull(SessionTimer.customMinutes("1441"))
+    assertNull(SessionTimer.customMinutes("1.5"))
+  }
+
+  @Test
+  fun doneRepeatsOnlyAUsualLength() {
+    assertEquals(10, SessionTimer.doneMinutes(10, HabitKind.SIMPLE))
+    assertEquals(15, SessionTimer.doneMinutes(120, HabitKind.SIMPLE, 15))
+    assertEquals("a focus session's real length", 25, SessionTimer.doneMinutes(25, HabitKind.SIMPLE, 20))
+    assertEquals(5, SessionTimer.doneMinutes(37, HabitKind.SIMPLE))
+    assertNull(SessionTimer.doneMinutes(null, HabitKind.SIMPLE, 15))
+  }
+
+  @Test
+  fun aShortSessionCountsFromHalfItsLength() {
+    assertEquals(5, SessionTimer.minimumMinutes(30 * min))
+    assertEquals(2, SessionTimer.minimumMinutes(5 * min))
+    assertEquals(1, SessionTimer.minimumMinutes(1 * min))
+    val meditation = SessionTimer.start(2, "Meditation", null, day, 5, start)
+    assertEquals("ended at 4:55", 4, meditation.finish(start + 4 * min + 55_000).minutesToLog(start + 6 * min))
+    assertNull(meditation.finish(start + 1 * min + 30_000).minutesToLog(start + 6 * min))
+  }
+
+  @Test
+  fun eachKindOfSessionHasItsOwnWords() {
+    val study = session()
+    val meditation = SessionTimer.start(2, "Meditation", null, day, 5, start, SessionKind.MEDITATION)
+    assertTrue(SessionTimer.line(study, start + min) in listOf("Phone down. Pen up.", "I keep time. You keep going.", "Checking the scope is allowed. Scrolling isn't.", "The questions are below. The answers go on paper."))
+    assertTrue("no pen in a meditation", "pen" !in SessionTimer.line(meditation, start + min).lowercase())
+    assertEquals("Five minutes. Finish the thought.", SessionTimer.line(study, start + 41 * min))
+    // Five minutes long: the wind-down is its last third, not all of it.
+    assertEquals("Almost done. Stay with the breath.", SessionTimer.line(meditation, start + 4 * min))
+    assertTrue(SessionTimer.line(meditation, start + 2 * min) != "Almost done. Stay with the breath.")
+    assertEquals("Time. Open your eyes slowly.", SessionTimer.line(meditation, start + 5 * min))
+    assertEquals(SessionKind.STUDY, SessionKind.guess("topic"))
+    assertEquals(SessionKind.CHORES, SessionKind.of(HabitKind.SIMPLE, "Chores", null, null))
+    assertEquals(SessionKind.READING, SessionKind.of(HabitKind.SIMPLE, "Reading", null, null))
   }
 
   @Test

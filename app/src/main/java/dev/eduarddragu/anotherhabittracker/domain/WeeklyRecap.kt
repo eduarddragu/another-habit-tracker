@@ -34,7 +34,13 @@ object WeeklyRecap {
     val lines = mutableListOf<String>()
     var doneDays = 0
     var possibleDays = 0
+    // Still to do tonight (the recap comes at 20:30, before the last calls), and each habit's share of
+    // its week, for a line about the next one.
+    val open = mutableListOf<String>()
+    val shares = mutableListOf<Pair<String, Double>>()
     for (habit in habits) {
+      // A habit never logged (one just added) has no week to miss yet: it stays out of the recap.
+      if (habit.since == null && habit.records.none { it.type == EntryType.SESSION }) continue
       val sessions = habit.records.filter { it.type == EntryType.SESSION && !it.day.isBefore(start) && !it.day.isAfter(today) }
       val dayList = sessions.map { it.day }.toSet()
       val days = dayList.size
@@ -46,6 +52,8 @@ object WeeklyRecap {
       val minutes = sessions.sumOf { it.minutes ?: 0 }
       doneDays += days
       possibleDays += possible
+      if (today !in dayList && today !in paused) open += habit.name
+      if (possible > 0) shares += habit.name to days.toDouble() / possible
       val time = if (minutes > 0) ", ${formatMinutes(minutes)}" else ""
       val scores = sessions.mapNotNull { it.score }
       val average = if (habit.kind == HabitKind.STUDY && scores.isNotEmpty()) ", average ${"%.1f".format(java.util.Locale.ENGLISH, scores.average())}" else ""
@@ -56,8 +64,12 @@ object WeeklyRecap {
         }
       }
     }
+    if (open.isNotEmpty()) lines += "Still open tonight: ${names(open)}. The week isn't over."
     val best = habits.maxOfOrNull { it.streak } ?: 0
     if (best > 0) lines += "Longest streak: ${dayCount(best)}."
+    // The habit that showed up least leads next week, when one clearly did.
+    val weakest = shares.minByOrNull { it.second }
+    if (weakest != null && shares.size > 1 && weakest.second < 1.0 && shares.count { it.second == weakest.second } == 1) lines += "Next week: ${weakest.first} first."
     val share = if (possibleDays == 0) 0.0 else doneDays.toDouble() / possibleDays
     val pool =
       when {
@@ -69,6 +81,9 @@ object WeeklyRecap {
     val title = pool[(start.toEpochDay() % pool.size).toInt()]
     return RecapText(title, lines.joinToString("\n"))
   }
+
+  /** "Study", "Study and Chores", "Study, Reading and Chores". */
+  private fun names(list: List<String>): String = if (list.size == 1) list.first() else list.dropLast(1).joinToString(", ") + " and " + list.last()
 
   private fun formatMinutes(minutes: Int): String {
     val hours = minutes / 60

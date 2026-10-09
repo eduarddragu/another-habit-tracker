@@ -10,6 +10,29 @@ enum class SessionPhase {
   FINISHED,
 }
 
+/** What a session is for: it sets the lines under the planet and how its end sounds. */
+enum class SessionKind {
+  STUDY,
+  MEDITATION,
+  READING,
+  CHORES,
+  OTHER;
+
+  companion object {
+    fun of(kind: HabitKind, name: String, icon: String?, linkedPackage: String?): SessionKind =
+      when {
+        kind == HabitKind.STUDY -> STUDY
+        Books.appliesTo(kind, name, icon) -> READING
+        Chores.appliesTo(kind, name, icon) -> CHORES
+        Practices.appliesTo(name, linkedPackage) -> MEDITATION
+        else -> OTHER
+      }
+
+    /** A session saved before it carried its kind: one with a topic was study. */
+    fun guess(topicId: String?): SessionKind = if (topicId != null) STUDY else OTHER
+  }
+}
+
 /**
  * A focus session: the planet on Home turned into a timer. All times are on one monotonic clock
  * (milliseconds, the phone's elapsed realtime), so a clock correction can't bend it. [day] is the
@@ -27,6 +50,7 @@ data class FocusSession(
   val pausedAt: Long? = null,
   val pausedTotalMillis: Long = 0,
   val finishedAt: Long? = null,
+  val kind: SessionKind = SessionKind.guess(topicId),
 ) {
   val totalMillis: Long
     get() = plannedMillis + extendedMillis
@@ -83,11 +107,11 @@ data class FocusSession(
 
   /**
    * The minutes to put in the log form: the full length when it ran out, whole minutes done when it
-   * was ended early, nothing when it was too short to count.
+   * was ended early, nothing when it was too short to count (see SessionTimer.minimumMinutes).
    */
   fun minutesToLog(now: Long): Int? {
     val minutes = (elapsed(now) / 60_000).toInt()
-    return minutes.takeIf { it >= SessionTimer.MIN_LOG_MINUTES }
+    return minutes.takeIf { it >= SessionTimer.minimumMinutes(plannedMillis) }
   }
 
   /** The same session on a clock that moved by [millis]: every saved time moves with it. */
@@ -108,6 +132,12 @@ object SessionTimer {
   const val MIN_LOG_MINUTES = 5
 
   /**
+   * The least a session must run to count: [MIN_LOG_MINUTES], or half the planned length when that's
+   * shorter (a five-minute meditation ended at 4:55 still counts). At least a minute.
+   */
+  fun minimumMinutes(plannedMillis: Long): Int = minOf(MIN_LOG_MINUTES, maxOf(1, (plannedMillis / 60_000 / 2).toInt()))
+
+  /**
    * Length choices: the log form's presets. A habit with its own session length gets half of it, it,
    * and half again (20 minutes: 10, 20, 30), in steps of five.
    */
@@ -116,6 +146,20 @@ object SessionTimer {
     val half = maxOf(MIN_LOG_MINUTES, (sessionMinutes / 2 + 2) / 5 * 5)
     return listOf(sessionMinutes - half, sessionMinutes, sessionMinutes + half).filter { it > 0 }.distinct()
   }
+
+  /**
+   * Minutes typed by hand in the log form ("Custom"): whole minutes from 1 to a day, the most a backup
+   * accepts, or nothing.
+   */
+  fun customMinutes(text: String): Int? = text.trim().toIntOrNull()?.takeIf { it in 1..Backups.MAX_MINUTES }
+
+  /**
+   * What "Done" on a reminder logs: the last session's length, unless it was longer than the longest
+   * preset (one long day typed by hand), then the habit's usual length. Nothing when no session had
+   * minutes.
+   */
+  fun doneMinutes(last: Int?, kind: HabitKind, sessionMinutes: Int? = null): Int? =
+    last?.let { if (it > presets(kind, sessionMinutes).max()) defaultMinutes(kind, sessionMinutes) else it }
 
   /** What the settings offer as a habit's session length. */
   val LENGTHS = listOf(5, 10, 15, 20, 25, 30, 45, 60)
@@ -138,15 +182,59 @@ object SessionTimer {
 
   data class Display(val value: Int, val seconds: Boolean)
 
-  fun start(habitId: Long, habitName: String, topicId: String?, day: LocalDate, minutes: Int, now: Long): FocusSession = FocusSession(habitId, habitName, topicId, day, minutes * 60_000L, now)
+  fun start(habitId: Long, habitName: String, topicId: String?, day: LocalDate, minutes: Int, now: Long, kind: SessionKind = SessionKind.guess(topicId)): FocusSession =
+    FocusSession(habitId, habitName, topicId, day, minutes * 60_000L, now, kind = kind)
 
-  private val running = listOf("Phone down. Pen up.", "I keep time. You keep going.", "Checking the scope is allowed. Scrolling isn't.", "The questions are below. The answers go on paper.")
+  /** The lines under the planet for one kind of session. */
+  private class Lines(val running: List<String>, val windDown: String, val paused: String, val over: String)
 
-  /** The line under the planet: one per session while running, then by phase. */
-  fun line(session: FocusSession, now: Long): String =
-    when (session.phase(now)) {
-      SessionPhase.PAUSED -> "Paused. The pen is waiting."
-      SessionPhase.FINISHED -> if (session.minutesToLog(now) == null) "Too short to count. Next time." else if (session.remaining(now) > 0) "Short one. Still counts." else "Time. Put the pen down."
-      SessionPhase.RUNNING -> if (session.remaining(now) <= 5 * 60_000L) "Five minutes. Finish the thought." else running[Random(session.startedAt).nextInt(running.size)]
+  private val lines =
+    mapOf(
+      SessionKind.STUDY to Lines(
+        listOf("Phone down. Pen up.", "I keep time. You keep going.", "Checking the scope is allowed. Scrolling isn't.", "The questions are below. The answers go on paper."),
+        windDown = "Nearly there. Finish the thought.",
+        paused = "Paused. The pen is waiting.",
+        over = "Time. Put the pen down.",
+      ),
+      SessionKind.MEDITATION to Lines(
+        listOf("Breathe. I'll keep time.", "Nothing to fix. Just notice.", "Thoughts come. Let them walk past.", "Eyes closed is fine. I'll ring."),
+        windDown = "Almost done. Stay with the breath.",
+        paused = "Paused. Sit back down when you can.",
+        over = "Time. Open your eyes slowly.",
+      ),
+      SessionKind.READING to Lines(
+        listOf("Pages, not pixels.", "Phone face down. Book face up.", "One more page is how this works.", "I keep time. You keep reading."),
+        windDown = "Nearly there. Finish the page.",
+        paused = "Paused. Keep your finger on the page.",
+        over = "Time. Bookmark it.",
+      ),
+      SessionKind.CHORES to Lines(
+        listOf("Rack, laundry, plants, bedroom. Go.", "Start with whatever you see first.", "Put one thing where it lives. Then the next.", "Music on, phone down, hands busy."),
+        windDown = "Nearly there. Finish what's in your hands.",
+        paused = "Paused. The mess will wait, sadly.",
+        over = "Time. Look around: better.",
+      ),
+      SessionKind.OTHER to Lines(
+        listOf("Phone down. Start.", "I keep time. You keep going."),
+        windDown = "Nearly there.",
+        paused = "Paused.",
+        over = "Time. Well done.",
+      ),
+    )
+
+  /** How long before the end the line turns to the wind-down: five minutes, or a third of a short session. */
+  fun windDownMillis(session: FocusSession): Long = minOf(5 * 60_000L, session.totalMillis / 3)
+
+  /** The line under the planet: one per session while running, then by phase, in the session's own words. */
+  fun line(session: FocusSession, now: Long): String {
+    val pool = lines.getValue(session.kind)
+    return when (session.phase(now)) {
+      SessionPhase.PAUSED -> pool.paused
+      SessionPhase.FINISHED -> if (session.minutesToLog(now) == null) "Too short to count. Next time." else if (session.remaining(now) > 0) "Short one. Still counts." else pool.over
+      SessionPhase.RUNNING ->
+        if (session.remaining(now) <= windDownMillis(session)) {
+          if (session.kind == SessionKind.STUDY && windDownMillis(session) == 5 * 60_000L) "Five minutes. Finish the thought." else pool.windDown
+        } else pool.running[Random(session.startedAt).nextInt(pool.running.size)]
     }
+  }
 }

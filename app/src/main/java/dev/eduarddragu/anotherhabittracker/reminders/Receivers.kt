@@ -8,8 +8,11 @@ import dev.eduarddragu.anotherhabittracker.HabitApp
 import dev.eduarddragu.anotherhabittracker.data.Entry
 import dev.eduarddragu.anotherhabittracker.data.Habit
 import dev.eduarddragu.anotherhabittracker.domain.Books
+import dev.eduarddragu.anotherhabittracker.domain.Chores
 import dev.eduarddragu.anotherhabittracker.domain.EntryType
 import dev.eduarddragu.anotherhabittracker.domain.LogRecord
+import dev.eduarddragu.anotherhabittracker.domain.Practices
+import dev.eduarddragu.anotherhabittracker.domain.Tone
 import dev.eduarddragu.anotherhabittracker.domain.RecapHabit
 import dev.eduarddragu.anotherhabittracker.domain.WeeklyRecap
 import dev.eduarddragu.anotherhabittracker.domain.ReminderMessages
@@ -54,21 +57,30 @@ private suspend fun remind(context: Context, app: HabitApp, habit: Habit, slot: 
   app.sessions.session.value?.let { if (it.habitId == habit.id && it.day == status.today && it.phase(app.sessions.now()) == SessionPhase.RUNNING) return }
   val tone = ReminderPlan.tone(slot, times.size)
   if (ReminderPlan.quieted(tone, System.currentTimeMillis(), app.quiet.until(habit.id))) return
-  // Study reminders talk about today's topic and open with its first guiding question; reading ones
-  // open with the line about the book on the go.
+  // Study reminders talk about today's topic and open with its first guiding question; meditation
+  // ones open with today's practice and its first step; reading ones talk about the book on the go;
+  // chores ones ask about a different check each time.
   val topic = status.pick?.topic
-  val book = status.books?.let { Books.day(it, status.today, status.doneToday, SessionTimer.defaultMinutes(habit.kind, habit.sessionMinutes)) }
+  val minutes = SessionTimer.defaultMinutes(habit.kind, habit.sessionMinutes)
+  val book = status.books?.let { Books.day(it, status.today, status.doneToday, minutes) }
+  val practice = if (topic == null && Practices.appliesTo(habit.name, habit.linkedPackage)) Practices.forDay(status.today) else null
+  val chores = if (Chores.appliesTo(habit.kind, habit.name, habit.icon)) Chores.reminderLine(status.today, slot) else null
   val text =
     ReminderMessages.text(
-      subject = topic?.title ?: habit.name,
+      subject = topic?.title ?: practice?.title?.takeIf { tone == Tone.OPENING } ?: habit.name,
       kind = habit.kind,
       tone = tone,
       streak = status.streak,
       day = status.today,
       slot = slot,
-      openingBody = topic?.hints?.firstOrNull() ?: book?.line,
+      openingBody = topic?.hints?.firstOrNull() ?: practice?.steps?.firstOrNull() ?: book?.line ?: chores,
+      nudgeBody = chores ?: book?.line,
+      slipped = status.summary.slipped,
+      minutes = minutes,
     )
   Notifications.show(context, habit, text, tone, status.today)
+  // The widget marks the last call: redrawn at its minute, since nothing else changes then.
+  if (tone == Tone.LAST_CALL) HabitWidgets.refresh(context)
 }
 
 /** Fired by the alarm of one reminder slot. */
@@ -108,8 +120,9 @@ class MidnightReceiver : BroadcastReceiver() {
     if (intent.action != ACTION_MIDNIGHT) return
     runAsync(context) { app ->
       app.scheduler.scheduleMidnightRefresh()
-      Notifications.dismissAll(context)
       app.repository.refreshDay()
+      // Only yesterday's reminders: one set in the first half minute of today stays up.
+      Notifications.dismissAll(context, postedBefore = app.repository.today().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli())
       // A session from an earlier day: see endsAtMidnight (ended without a chime at this hour); a
       // finished one never logged is let go the night after.
       app.sessions.session.value?.let {
@@ -167,7 +180,7 @@ class RescheduleReceiver : BroadcastReceiver() {
   }
 }
 
-/** The buttons on a reminder that act without opening the app: "Done" and "On it". */
+/** The buttons on a reminder that act without opening the app: "Done" and "On it", and Undo after Done. */
 class NotificationActionReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     val habitId = intent.getLongExtra(EXTRA_HABIT_ID, -1)
@@ -179,13 +192,27 @@ class NotificationActionReceiver : BroadcastReceiver() {
           // Last night's reminder, tapped in the seconds before midnight clears it: done yesterday.
           val reminded = intent.getLongExtra(EXTRA_DAY, Long.MIN_VALUE).takeIf { it != Long.MIN_VALUE }?.let(LocalDate::ofEpochDay)
           val yesterday = reminded == status.today.minusDays(1)
-          // Logged like the form would, with the minutes of the last session (a usual length), and for
-          // a reading habit the book on the go, so the read list keeps its time.
-          if (yesterday || status.summary.dayOpen) {
-            val minutes = status.recent.firstOrNull { it.type == EntryType.SESSION }?.minutes
-            val book = status.books?.current
-            app.repository.logSessionIfMissing(Entry(habitId = habitId, day = if (yesterday) status.today.minusDays(1) else status.today, minutes = minutes, track = book?.title, module = book?.author))
-          }
+          // Logged like the form would, with the minutes of the last session when they were a usual
+          // length, and for a reading habit the book on the go, so the read list keeps its time.
+          val logged =
+            if (yesterday || status.summary.dayOpen) {
+              val last = status.recent.firstOrNull { it.type == EntryType.SESSION }?.minutes
+              val minutes = SessionTimer.doneMinutes(last, status.habit.kind, status.habit.sessionMinutes)
+              val book = status.books?.current
+              app.repository.logSessionIfMissing(Entry(habitId = habitId, day = if (yesterday) status.today.minusDays(1) else status.today, minutes = minutes, track = book?.title, module = book?.author))
+            } else null
+          // The reminder makes way for "Logged." with the streak it made, and Undo for a pocket tap.
+          if (logged != null) {
+            val streak = app.repository.status(habitId)?.streak ?: 0
+            Notifications.showLogged(context, status.habit, logged, streak)
+          } else Notifications.dismiss(context, habitId)
+        }
+      ACTION_UNDO ->
+        runAsync(context) { app ->
+          val entryId = intent.getLongExtra(EXTRA_ENTRY_ID, -1)
+          // Only a session of this habit: the id came with the confirmation, and nothing else is undone.
+          val entry = app.repository.entry(entryId)
+          if (entry != null && entry.habitId == habitId && entry.type == EntryType.SESSION) app.repository.deleteSession(entryId)
           Notifications.dismiss(context, habitId)
         }
       ACTION_ON_IT -> {
@@ -198,7 +225,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
   companion object {
     const val ACTION_DONE = "dev.eduarddragu.anotherhabittracker.DONE"
     const val ACTION_ON_IT = "dev.eduarddragu.anotherhabittracker.ON_IT"
+    const val ACTION_UNDO = "dev.eduarddragu.anotherhabittracker.UNDO_DONE"
     const val EXTRA_HABIT_ID = "habit_id"
+    const val EXTRA_ENTRY_ID = "entry_id"
     const val EXTRA_DAY = "day"
   }
 }

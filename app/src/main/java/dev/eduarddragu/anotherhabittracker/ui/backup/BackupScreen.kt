@@ -40,6 +40,8 @@ import dev.eduarddragu.anotherhabittracker.domain.Backups
 import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
 import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
+import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
+import dev.eduarddragu.anotherhabittracker.ui.components.rise
 import dev.eduarddragu.anotherhabittracker.ui.components.cardOutline
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
 import java.time.Instant
@@ -81,7 +83,17 @@ class BackupViewModel(private val app: HabitApp) : ViewModel() {
 
   fun exportTo(uri: Uri) = run("Exported.") { app.backups.exportTo(uri) }
 
-  fun read(uri: Uri) = run(null) { _pending.value = app.backups.read(uri) }
+  /** Habits on the phone that the waiting file doesn't have: the import removes them (an older backup has no Reading or Chores). */
+  private val _dropped = MutableStateFlow<List<String>>(emptyList())
+  val dropped: StateFlow<List<String>> = _dropped.asStateFlow()
+
+  fun read(uri: Uri) =
+    run(null) {
+      val file = app.backups.read(uri)
+      val kept = file.habits.map { it.id }.toSet()
+      _dropped.value = app.repository.habits().filter { it.id !in kept }.map { it.name }
+      _pending.value = file
+    }
 
   fun confirmImport() {
     val file = _pending.value ?: return
@@ -129,6 +141,8 @@ fun BackupScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: Backup
   val busy by viewModel.busy.collectAsStateWithLifecycle()
   val message by viewModel.message.collectAsStateWithLifecycle()
   val pending by viewModel.pending.collectAsStateWithLifecycle()
+  val dropped by viewModel.dropped.collectAsStateWithLifecycle()
+  val arrival = rememberArrival(3)
   var confirmingStop by rememberSaveable { mutableStateOf(false) }
   val colors = MaterialTheme.colorScheme
 
@@ -137,12 +151,12 @@ fun BackupScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: Backup
   val importFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(viewModel::read) }
 
   Column(modifier.verticalScroll(rememberScrollState()).padding(screenPadding()), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.rise(arrival[0]), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       ScreenTitle("Backup", "Your data")
       Text("Everything the app knows, as one JSON file: habits, sessions, known topics.", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.rise(arrival[1]), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       SectionLabel("Every night")
       val uri = nightly.uri
       if (uri == null) {
@@ -155,23 +169,23 @@ fun BackupScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: Backup
             val error = nightly.lastError
             val saved = nightly.lastSaved
             Text(
-              error ?: saved?.let { "Saved ${formatSaved(it)}" } ?: "Not saved yet",
+              error ?: saved?.let { "Saved ${formatSaved(it)}." } ?: "Not saved yet.",
               style = MaterialTheme.typography.bodyMedium,
               color = if (error != null) colors.primary else colors.onSurfaceVariant,
             )
           }
           TextAction("Change", onClick = { chooseNightly.launch(Backups.NIGHTLY_NAME) }, enabled = !busy)
         }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Button(shape = MaterialTheme.shapes.medium, onClick = viewModel::saveNow, enabled = !busy) { Text("Save now") }
           OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { confirmingStop = true }, enabled = !busy, border = cardOutline()) { Text("Stop") }
         }
       }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.rise(arrival[2]), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       SectionLabel("By hand")
-      FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { exportCopy.launch(Backups.fileName(viewModel.today())) }, enabled = !busy, border = cardOutline()) { Text("Export a copy") }
         OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { importFile.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, enabled = !busy, border = cardOutline()) { Text("Import") }
       }
@@ -210,10 +224,12 @@ fun BackupScreen(app: HabitApp, modifier: Modifier = Modifier, viewModel: Backup
 
   pending?.let { file ->
     val from = runCatching { formatSaved(Instant.parse(file.exportedAt)) }.getOrDefault("an unknown date")
+    // A habit the file doesn't have goes away with its history, so it's named before it happens.
+    val gone = dropped.takeIf { it.isNotEmpty() }?.let { names -> " ${names.joinToString(" and ")} ${if (names.size == 1) "isn't" else "aren't"} in it and will be removed." }.orEmpty()
     AlertDialog(
       onDismissRequest = viewModel::cancelImport,
       title = { Text("Replace everything?") },
-      text = { Text("What's on this phone will be replaced with the backup from $from: ${Backups.summary(file)}.") },
+      text = { Text("What's on this phone will be replaced with the backup from $from: ${Backups.summary(file)}.$gone") },
       confirmButton = { TextButton(onClick = viewModel::confirmImport) { Text("Replace") } },
       dismissButton = { TextButton(onClick = viewModel::cancelImport) { Text("Cancel") } },
     )

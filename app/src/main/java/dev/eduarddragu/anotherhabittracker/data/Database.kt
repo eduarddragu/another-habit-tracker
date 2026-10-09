@@ -168,7 +168,7 @@ interface EntryDao {
   entities = [Habit::class, Entry::class, TimeOffRow::class],
   version = DB_SCHEMA,
   exportSchema = true,
-  autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5, spec = AddReading::class)],
+  autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5, spec = AddReading::class), AutoMigration(from = 5, to = 6, spec = AddChores::class)],
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -206,6 +206,22 @@ class AddReading : AutoMigrationSpec {
   }
 }
 
+/**
+ * Schema 6 changes no table: it adds Chores, 15 minutes a day of putting the place right (see domain
+ * Chores), with the same reminders every day. Added once, like Reading; a fresh install gets it from
+ * [HabitRepository.seedIfEmpty].
+ */
+class AddChores : AutoMigrationSpec {
+  override fun onPostMigrate(db: SupportSQLiteDatabase) {
+    db.query("SELECT COUNT(*) FROM habits WHERE name = 'Chores'").use { if (it.moveToFirst() && it.getInt(0) > 0) return }
+    val position = db.query("SELECT COALESCE(MAX(position) + 1, 0) FROM habits").use { if (it.moveToFirst()) it.getInt(0) else 0 }
+    db.execSQL(
+      "INSERT INTO habits (name, kind, reminderTimes, linkedPackage, position, icon, weekendReminderTimes, sessionMinutes) VALUES (?, ?, ?, NULL, ?, ?, NULL, ?)",
+      arrayOf<Any>(CHORES.name, CHORES.kind.name, CHORES.reminderTimes, position, CHORES.icon!!, CHORES.sessionMinutes!!),
+    )
+  }
+}
+
 // The habits as they're first set up. Weekdays stay off working hours (study from the end of the
 // workday, meditation at lunch and in the evening, reading at lunch and before bed); weekends are
 // spread out.
@@ -232,4 +248,14 @@ val READING =
     weekendReminderTimes = "10:30,16:00,21:00,22:30",
     icon = HabitIcon.BOOKMARK.name,
     sessionMinutes = 20,
+  )
+
+/** Morning, lunch and the end of the workday, spaced out, weekends the same; the last one is the last call. */
+val CHORES =
+  Habit(
+    name = "Chores",
+    kind = HabitKind.SIMPLE,
+    reminderTimes = "09:00,13:00,18:00",
+    icon = HabitIcon.HOUSE.name,
+    sessionMinutes = 15,
   )
