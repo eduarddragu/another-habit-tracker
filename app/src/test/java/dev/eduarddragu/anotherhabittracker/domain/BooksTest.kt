@@ -149,4 +149,15 @@ class BooksTest {
     assertTrue(recap.body, recap.body.startsWith("Reading: 1 of"))
     assertTrue(recap.body, ", 30 min." in recap.body)
   }
+
+  @Test
+  fun aSavedSessionReplacesOnlyItsOwnBooksMark() {
+    // Renamed while editing: the mark under the old title goes, so it can follow the new one.
+    assertTrue(Books.replacesMark("Dune", previousTitle = "Dune", title = "Dune Messiah"))
+    assertTrue(Books.replacesMark(" dune  messiah", previousTitle = "Dune", title = "Dune Messiah"))
+    // Another book finished the same day keeps its mark, and an untitled session touches none.
+    assertFalse(Books.replacesMark("Poltergeist", previousTitle = "Dune", title = "Dune Messiah"))
+    assertFalse(Books.replacesMark(null, previousTitle = null, title = null))
+    assertFalse(Books.replacesMark("Dune", previousTitle = null, title = null))
+  }
 }

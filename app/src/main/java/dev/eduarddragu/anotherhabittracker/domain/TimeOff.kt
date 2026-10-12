@@ -22,6 +22,10 @@ object TimeOff {
       }
       .toSet()
 
+  /** [daysOff] without the days a session was logged on anyway: those count as days studied. */
+  fun withoutSessions(daysOff: Set<LocalDate>, records: List<LogRecord>): Set<LocalDate> =
+    daysOff - records.filter { it.type == EntryType.SESSION }.map { it.day }.toSet()
+
   /** The period [today] falls in, if any. */
   fun current(periods: List<TimeOffPeriod>, today: LocalDate): TimeOffPeriod? = periods.firstOrNull { it.contains(today) }
 

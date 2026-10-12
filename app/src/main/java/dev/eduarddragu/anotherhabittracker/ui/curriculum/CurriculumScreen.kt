@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -97,6 +98,9 @@ fun CurriculumScreen(
   var expanded by rememberSaveable { mutableStateOf<String?>(null) }
   // The header, then the areas, arriving as the page slides in.
   val arrival = rememberArrival(2)
+  // Reviews waiting, weakest first: the picker brings one back now and then, this lists them all
+  // and lets one be today's topic.
+  val due = remember(marks, status.today, status.summary.daysOff) { TopicPicker.dueReviews(curriculum, marks.values.toList(), status.today, status.summary.daysOff) }
 
   LazyColumn(modifier, contentPadding = screenPadding(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
     item {
@@ -113,9 +117,6 @@ fun CurriculumScreen(
         )
       }
     }
-    // Reviews waiting, weakest first: the picker brings one back now and then, this lists them all
-    // and lets one be today's topic.
-    val due = TopicPicker.dueReviews(curriculum, marks.values.toList(), status.today)
     if (due.isNotEmpty()) {
       item(key = "due") {
         Column(Modifier.rise(arrival[1], 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

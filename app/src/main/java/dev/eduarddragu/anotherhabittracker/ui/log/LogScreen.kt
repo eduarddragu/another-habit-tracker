@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,11 +35,13 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import dev.eduarddragu.anotherhabittracker.ui.components.Field
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -65,6 +68,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -76,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.eduarddragu.anotherhabittracker.HabitApp
+import dev.eduarddragu.anotherhabittracker.R
 import dev.eduarddragu.anotherhabittracker.data.Entry
 import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
 import dev.eduarddragu.anotherhabittracker.domain.Books
@@ -83,6 +88,7 @@ import dev.eduarddragu.anotherhabittracker.domain.HabitKind
 import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
 import dev.eduarddragu.anotherhabittracker.domain.Topic
 import dev.eduarddragu.anotherhabittracker.domain.TopicPicker
+import dev.eduarddragu.anotherhabittracker.domain.extraTopicIds
 import dev.eduarddragu.anotherhabittracker.reminders.Notifications
 import dev.eduarddragu.anotherhabittracker.reminders.Sessions
 import dev.eduarddragu.anotherhabittracker.theme.Motion
@@ -193,8 +199,11 @@ fun LogScreen(
   // There is no switch in the form: logging for another day starts from that day on the habit's page.
   val fixedDay = onDay?.takeIf { !editing }?.let(LocalDate::ofEpochDay)?.takeIf { it != LocalDate.ofEpochDay(openedOn) }
   var score by rememberSaveable { mutableStateOf<Int?>(null) }
-  var minutes by rememberSaveable { mutableStateOf(prefillMinutes) }
+  // A new log starts on the habit's usual length, so the common case is one tap on Save.
+  var minutes by rememberSaveable { mutableStateOf(prefillMinutes ?: SessionTimer.defaultMinutes(habit.kind, habit.sessionMinutes).takeIf { !editing }) }
   var note by rememberSaveable { mutableStateOf("") }
+  // Other curriculum topics touched in the session, as ids joined by commas: a label for reports,
+  // never a mark (the review dates follow the session's own topic and score only).
   var extraTopics by rememberSaveable { mutableStateOf("") }
   // A new reading session starts on the book on the go.
   var track by rememberSaveable { mutableStateOf(current.books?.current?.title.orEmpty().takeIf { reading && !editing }.orEmpty()) }
@@ -245,6 +254,7 @@ fun LogScreen(
     dayTopicLoaded = true
   }
   var pickingTopic by rememberSaveable { mutableStateOf(false) }
+  var addingExtra by rememberSaveable { mutableStateOf(false) }
   var typingMinutes by rememberSaveable { mutableStateOf(false) }
 
   // Only a note is worth asking about: scores and minutes are one tap to pick again.
@@ -264,7 +274,7 @@ fun LogScreen(
         score = if (study) score else null,
         minutes = minutes,
         note = note.trim(),
-        extraTopics = extraTopics.trim(),
+        extraTopics = (extraTopicIds(extraTopics) - topicId).joinToString(","),
         track = track.trim().ifEmpty { null },
         module = module.trim().ifEmpty { null },
         topicId = if (study) topicId else null,
@@ -333,7 +343,9 @@ fun LogScreen(
                 Text("COULD TEACH IT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
               }
             } else {
-              Text(TopicPicker.scoreMeaning(picked), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+              // A cert has no review dates: it stays the topic until the exam, whatever the score.
+              val meaning = if (viewModel.curriculum.certs.any { it.id == topicId }) "${TopicPicker.scoreLabel(picked)}. It stays your topic until you pass." else TopicPicker.scoreMeaning(picked)
+              Text(meaning, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
           }
         }
@@ -436,7 +448,26 @@ fun LogScreen(
             exit = shrinkVertically(tween(Motion.SHORT, easing = Motion.EaseUi)) + fadeOut(tween(100)),
           ) {
             Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-              Field(extraTopics, { extraTopics = it }, label = "Other topics studied", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), modifier = Modifier.fillMaxWidth())
+              val extras = extraTopicIds(extraTopics)
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionLabel("Also studied")
+                // A tap on a topic takes it off.
+                if (extras.isNotEmpty()) {
+                  FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    extras.forEach { id ->
+                      val remove = { extraTopics = (extras - id).joinToString(",") }
+                      val title = viewModel.curriculum.byId[id]?.title ?: id
+                      AssistChip(
+                        onClick = remove,
+                        label = { Text(title) },
+                        trailingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        modifier = Modifier.semantics { contentDescription = "Remove $title" },
+                      )
+                    }
+                  }
+                }
+                TextAction("Add a topic", onClick = { addingExtra = true })
+              }
               Field(track, { track = it }, label = "Course or book", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
               Field(module, { module = it }, label = "Module or chapter", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), singleLine = true, modifier = Modifier.fillMaxWidth())
             }
@@ -531,13 +562,28 @@ fun LogScreen(
   }
 
   if (pickingTopic) {
+    // The cert being studied for comes first, so a topic changed by mistake can go back to it.
+    val certs = viewModel.curriculum.certs.filter { it.id == current.habit.certId }.map { it.topic }
     TopicDialog(
-      viewModel.curriculum.topics,
+      certs + viewModel.curriculum.topics,
       onDismiss = { pickingTopic = false },
       onPick = {
         topicId = it
         topicChosen = true
         pickingTopic = false
+      },
+    )
+  }
+  if (addingExtra) {
+    val extras = extraTopicIds(extraTopics)
+    TopicDialog(
+      viewModel.curriculum.topics.filter { it.id != topicId && it.id !in extras },
+      title = "Also studied",
+      none = false,
+      onDismiss = { addingExtra = false },
+      onPick = { id ->
+        if (id != null) extraTopics = (extras + id).joinToString(",")
+        addingExtra = false
       },
     )
   }
@@ -582,20 +628,20 @@ private fun ScoreSquares(selected: Int?, onPick: (Int) -> Unit) {
 }
 
 @Composable
-private fun TopicDialog(topics: List<Topic>, onDismiss: () -> Unit, onPick: (String?) -> Unit) {
+private fun TopicDialog(topics: List<Topic>, onDismiss: () -> Unit, onPick: (String?) -> Unit, title: String = "Topic", none: Boolean = true) {
   var query by rememberSaveable { mutableStateOf("") }
   val shown = topics.filter { query.isBlank() || it.title.contains(query, ignoreCase = true) || it.id.contains(query, ignoreCase = true) }
   AlertDialog(
     onDismissRequest = onDismiss,
     confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    title = { Text("Topic") },
+    title = { Text(title) },
     text = {
       Column {
         Field(query, { query = it }, label = "Search", singleLine = true, modifier = Modifier.fillMaxWidth())
         LazyColumn(Modifier.heightIn(max = 400.dp)) {
-          item { Text("None", Modifier.fillMaxWidth().clickable { onPick(null) }.padding(vertical = 10.dp)) }
+          if (none) item { Text("None", Modifier.fillMaxWidth().clickable(role = Role.Button) { onPick(null) }.padding(vertical = 12.dp)) }
           items(shown, key = { it.id }) { topic ->
-            Text(topic.title, Modifier.fillMaxWidth().clickable { onPick(topic.id) }.padding(vertical = 10.dp))
+            Text(topic.title, Modifier.fillMaxWidth().clickable(role = Role.Button) { onPick(topic.id) }.padding(vertical = 12.dp))
           }
         }
       }

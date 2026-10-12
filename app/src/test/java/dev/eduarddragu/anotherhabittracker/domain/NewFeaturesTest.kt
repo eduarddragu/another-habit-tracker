@@ -74,17 +74,18 @@ class NewFeaturesTest {
   }
 
   @Test
-  fun recapIsSundayEveningAndNeverInThePast() {
-    val at = java.time.LocalTime.of(20, 30)
-    assertEquals(sunday.atTime(at), WeeklyRecap.nextAt(sunday.minusDays(2).atTime(9, 0)))
-    assertEquals(sunday.atTime(at), WeeklyRecap.nextAt(sunday.atTime(20, 29)))
-    assertEquals(sunday.plusWeeks(1).atTime(at), WeeklyRecap.nextAt(sunday.atTime(20, 30)))
+  fun recapIsMondayMorningAndNeverInThePast() {
+    val at = java.time.LocalTime.of(8, 0)
+    val monday = sunday.plusDays(1)
+    assertEquals(monday.atTime(at), WeeklyRecap.nextAt(sunday.minusDays(2).atTime(9, 0)))
+    assertEquals(monday.atTime(at), WeeklyRecap.nextAt(monday.atTime(7, 59)))
+    assertEquals(monday.plusWeeks(1).atTime(at), WeeklyRecap.nextAt(monday.atTime(8, 0)))
   }
 
   @Test
-  fun anOpenSundayIsNotCountedAsMissed() {
+  fun anEmptySundayCountsAsMissedOnceTheWeekIsOver() {
     val habit = RecapHabit("Meditation", HabitKind.SIMPLE, (1L..6L).map { LogRecord(sunday.minusDays(it), EntryType.SESSION, minutes = 5) }, 6)
-    assertTrue(WeeklyRecap.build(listOf(habit), sunday) { null }.body.startsWith("Meditation: 6 of 6 days"))
+    assertTrue(WeeklyRecap.build(listOf(habit), sunday) { null }.body.startsWith("Meditation: 6 of 7 days"))
   }
 
   @Test

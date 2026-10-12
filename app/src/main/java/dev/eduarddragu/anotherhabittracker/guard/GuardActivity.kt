@@ -45,6 +45,7 @@ import dev.eduarddragu.anotherhabittracker.MainActivity
 import dev.eduarddragu.anotherhabittracker.data.HabitStatus
 import dev.eduarddragu.anotherhabittracker.domain.GuardText
 import dev.eduarddragu.anotherhabittracker.domain.HabitKind
+import dev.eduarddragu.anotherhabittracker.domain.PickKind
 import dev.eduarddragu.anotherhabittracker.domain.ScrollGuard
 import dev.eduarddragu.anotherhabittracker.reminders.Notifications
 import dev.eduarddragu.anotherhabittracker.reminders.resolveLinkedApp
@@ -126,7 +127,7 @@ class GuardActivity : ComponentActivity() {
         app.guard.recordBlock(today)
         counted = true
       }
-      content = GuardContent(appName, text, stakes.streak, open, ScrollGuard.grantLabel(budget), waitSeconds = if (budget.grants >= 1) GRANT_WAIT_SECONDS else 0)
+      content = GuardContent(appName, text, stakes.streak, open, ScrollGuard.grantLabel(budget), waitSeconds = ScrollGuard.waitSeconds(budget.grants))
     }
   }
 
@@ -158,9 +159,6 @@ class GuardActivity : ComponentActivity() {
     private const val EXTRA_PACKAGE = "package"
     private const val EXTRA_PREVIEW = "preview"
 
-    /** After the first grant of the day, the next ones take a few seconds to become tappable. */
-    private const val GRANT_WAIT_SECONDS = 3
-
     fun intent(context: Context, pkg: String, preview: Boolean = false): Intent =
       Intent(context, GuardActivity::class.java)
         .putExtra(EXTRA_PACKAGE, pkg)
@@ -183,7 +181,8 @@ private fun GuardScreen(content: GuardContent, onDoIt: () -> Unit, onGrant: () -
   BackHandler(onBack = onLeave)
   val arrival = rememberArrival(4, delayOf = { Motion.STAGGER * it.toLong() }, durationOf = { Motion.ENTRANCE })
   val colors = MaterialTheme.colorScheme
-  val topic = content.open.firstNotNullOfOrNull { it.pick?.topic }
+  val pick = content.open.firstNotNullOfOrNull { it.pick }
+  val topic = pick?.topic
   var wait by remember(content) { mutableIntStateOf(content.waitSeconds) }
   LaunchedEffect(content) {
     while (wait > 0) {
@@ -216,7 +215,7 @@ private fun GuardScreen(content: GuardContent, onDoIt: () -> Unit, onGrant: () -
       }
       if (topic != null) {
         DayCard(done = false, modifier = Modifier.rise(arrival[2], 16.dp)) {
-          CardLabel(lead = listOf("TOPIC"), state = "TODAY")
+          CardLabel(lead = listOf(if (pick?.kind == PickKind.CERT) "EXAM" else "TOPIC"), state = "TODAY")
           Text(topic.title, style = MaterialTheme.typography.headlineSmall)
         }
       }
@@ -227,7 +226,7 @@ private fun GuardScreen(content: GuardContent, onDoIt: () -> Unit, onGrant: () -
       // Leaving on the left, more time on the right; with large text the second wraps under the first.
       FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         TextAction("Close ${content.appName}", onClick = onLeave, color = colors.onSurfaceVariant)
-        TextAction(if (wait > 0) "${content.grantLabel} ($wait)" else content.grantLabel, onClick = onGrant, enabled = wait == 0)
+        TextAction(if (wait > 0) "${content.grantLabel} (${if (wait >= 60) "%d:%02d".format(wait / 60, wait % 60) else wait})" else content.grantLabel, onClick = onGrant, enabled = wait == 0)
       }
     }
   }

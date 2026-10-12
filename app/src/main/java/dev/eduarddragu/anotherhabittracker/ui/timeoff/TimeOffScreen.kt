@@ -8,14 +8,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -35,6 +31,7 @@ import dev.eduarddragu.anotherhabittracker.HabitApp
 import dev.eduarddragu.anotherhabittracker.domain.TimeOff
 import dev.eduarddragu.anotherhabittracker.domain.TimeOffPeriod
 import dev.eduarddragu.anotherhabittracker.reminders.Notifications
+import dev.eduarddragu.anotherhabittracker.ui.components.DayPickerDialog
 import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
 import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
@@ -42,9 +39,7 @@ import dev.eduarddragu.anotherhabittracker.ui.components.launchSafely
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
 import dev.eduarddragu.anotherhabittracker.ui.components.rise
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.flow.SharingStarted
@@ -170,39 +165,21 @@ fun TimeOffScreen(
     val initial = if (which == "from") LocalDate.ofEpochDay(from) else until?.let(LocalDate::ofEpochDay) ?: today.plusDays(7)
     val earliest = if (which == "from") min else LocalDate.ofEpochDay(from)
     val latest = if (which == "from") today else today.plusYears(1)
-    val state =
-      rememberDatePickerState(
-        initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
-        selectableDates =
-          object : SelectableDates {
-            override fun isSelectableDate(utcTimeMillis: Long): Boolean {
-              val day = Instant.ofEpochMilli(utcTimeMillis).atZone(ZoneOffset.UTC).toLocalDate()
-              return !day.isBefore(earliest) && !day.isAfter(latest)
-            }
-          },
-      )
-    DatePickerDialog(
-      onDismissRequest = { picking = null },
-      confirmButton = {
-        TextButton(
-          onClick = {
-            state.selectedDateMillis?.let { millis ->
-              val day = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().toEpochDay()
-              if (which == "from") {
-                from = day
-                if (until != null && until!! < day) until = null
-              } else until = day
-            }
-            picking = null
-          }
-        ) {
-          Text("Set")
-        }
+    DayPickerDialog(
+      if (which == "from") "Time off from" else "Back after",
+      initial,
+      earliest,
+      latest,
+      onDismiss = { picking = null },
+      onPick = { picked ->
+        val day = picked.toEpochDay()
+        if (which == "from") {
+          from = day
+          if (until != null && until!! < day) until = null
+        } else until = day
+        picking = null
       },
-      dismissButton = { TextButton(onClick = { picking = null }) { Text("Cancel") } },
-    ) {
-      DatePicker(state)
-    }
+    )
   }
 }
 

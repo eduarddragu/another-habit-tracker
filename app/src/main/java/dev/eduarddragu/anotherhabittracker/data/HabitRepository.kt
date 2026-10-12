@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import dev.eduarddragu.anotherhabittracker.domain.BackupFile
 import dev.eduarddragu.anotherhabittracker.domain.Books
 import dev.eduarddragu.anotherhabittracker.domain.Cell
+import dev.eduarddragu.anotherhabittracker.domain.Certs
 import dev.eduarddragu.anotherhabittracker.domain.Curriculum
 import dev.eduarddragu.anotherhabittracker.domain.EntryType
 import dev.eduarddragu.anotherhabittracker.domain.Freezes
@@ -279,6 +280,30 @@ class HabitRepository(
       fresh
     }
 
+  /**
+   * The exam is passed: the cert's topics are marked as known and the habit goes back to the picker.
+   * Hands back the habit as it was and the topics newly marked, for [undoPassed]; null with no cert.
+   */
+  suspend fun passCert(habitId: Long): Pair<Habit, Set<String>>? =
+    db.withTransaction {
+      val habit = db.habits().byId(habitId) ?: return@withTransaction null
+      val cert = curriculum.certs.firstOrNull { it.id == habit.certId } ?: return@withTransaction null
+      val marked = markKnown(habitId, cert.grants)
+      db.habits().update(habit.copy(certId = null, examDate = null))
+      habit to marked
+    }
+
+  /** An undo of [passCert]. In the app's scope, like [undoKnown]. */
+  fun undoPassed(habit: Habit, marked: Set<String>) {
+    scope.launch {
+      db.withTransaction {
+        marked.forEach { db.entries().deleteKnown(habit.id, it) }
+        // Only the cert comes back: settings changed since then stay.
+        db.habits().byId(habit.id)?.let { db.habits().update(it.copy(certId = habit.certId, examDate = habit.examDate)) }
+      }
+    }
+  }
+
   suspend fun entry(id: Long): Entry? = db.entries().byId(id)
 
   /** A session corrected after the fact (score, minutes, notes, topic). */
@@ -303,8 +328,7 @@ class HabitRepository(
           logSession(entry.copy(id = 0))
         }
       val marks = db.entries().forHabit(entry.habitId).filter { it.type == EntryType.FINISHED && it.day == entry.day }
-      val keys = listOfNotNull(previous?.track, entry.track).map(Books::key).toSet()
-      marks.filter { Books.key(it.track.orEmpty()) in keys }.forEach { db.entries().delete(it.id) }
+      marks.filter { Books.replacesMark(it.track, previous?.track, entry.track) }.forEach { db.entries().delete(it.id) }
       if (finished && entry.track != null) db.entries().insert(Entry(habitId = entry.habitId, day = entry.day, type = EntryType.FINISHED, track = entry.track, module = entry.module))
       id
     }
@@ -350,8 +374,12 @@ class HabitRepository(
 
   /** A study habit's topic as it was on [day] (for a session logged late). */
   suspend fun pickOn(habitId: Long, day: LocalDate): TopicPick? {
+    // While studying for a cert it was the topic every day.
+    val habit = db.habits().byId(habitId)
+    curriculum.certs.firstOrNull { it.id == habit?.certId }?.let { return Certs.pick(it, habit?.examDate, day) }
     val records = db.entries().forHabit(habitId).map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId) }
-    return withContext(Dispatchers.Default) { TopicPicker.pickOn(curriculum, HabitSummaries.topicMarks(records), day) }
+    val daysOff = TimeOff.withoutSessions(TimeOff.days(db.timeOff().all().map { it.toPeriod() }, day), records)
+    return withContext(Dispatchers.Default) { TopicPicker.pickOn(curriculum, HabitSummaries.topicMarks(records), day, daysOff) }
   }
 
   /** One consistent snapshot of everything, for the backup file. */
@@ -388,7 +416,8 @@ class HabitRepository(
     // A "keep going" choice for today, or a topic held through time off, replaces the picker's topic
     // everywhere: screens, widget, reminders.
     val chosen = focus.all.value[habit.id]
-    val topic = TodaysTopics.resolve(habit.kind, built.pick, built.topicMarks, records, today, chosen?.day, chosen?.topicId, timeOff, curriculum)
+    val cert = curriculum.certs.firstOrNull { it.id == habit.certId }?.let { Certs.pick(it, habit.examDate, today) }
+    val topic = TodaysTopics.resolve(habit.kind, built.pick, built.topicMarks, records, today, chosen?.day, chosen?.topicId, timeOff, curriculum, cert)
     val summary = built.copy(pick = topic.pick)
     // Sessions and freezes: both are things he did on a day, and both can be taken back from Recent.
     val sessionDays = entries.filter { it.type == EntryType.SESSION }.map { it.day }.toSet()

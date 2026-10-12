@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import dev.eduarddragu.anotherhabittracker.ui.components.gutter
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -35,6 +36,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -44,6 +46,9 @@ import dev.eduarddragu.anotherhabittracker.ui.components.Field
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -63,6 +68,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -72,12 +78,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.eduarddragu.anotherhabittracker.HabitApp
+import dev.eduarddragu.anotherhabittracker.R
 import dev.eduarddragu.anotherhabittracker.data.Habit
 import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
 import dev.eduarddragu.anotherhabittracker.domain.Chores
 import dev.eduarddragu.anotherhabittracker.domain.HabitIcon
+import dev.eduarddragu.anotherhabittracker.domain.HabitKind
 import dev.eduarddragu.anotherhabittracker.domain.ReminderMessages
-import dev.eduarddragu.anotherhabittracker.domain.ReminderPlan
 import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
 import dev.eduarddragu.anotherhabittracker.domain.Tone
 import dev.eduarddragu.anotherhabittracker.domain.formatReminderTimes
@@ -86,7 +93,7 @@ import dev.eduarddragu.anotherhabittracker.domain.parseReminderTimes
 import dev.eduarddragu.anotherhabittracker.reminders.Notifications
 import dev.eduarddragu.anotherhabittracker.reminders.ReminderScheduler
 import dev.eduarddragu.anotherhabittracker.theme.Motion
-import dev.eduarddragu.anotherhabittracker.theme.Numerals
+import dev.eduarddragu.anotherhabittracker.ui.components.DayPickerDialog
 import dev.eduarddragu.anotherhabittracker.ui.components.HabitIconImage
 import dev.eduarddragu.anotherhabittracker.ui.components.HabitViewModel
 import dev.eduarddragu.anotherhabittracker.ui.components.ScreenTitle
@@ -97,7 +104,10 @@ import dev.eduarddragu.anotherhabittracker.ui.components.launchSafely
 import dev.eduarddragu.anotherhabittracker.ui.components.rememberArrival
 import dev.eduarddragu.anotherhabittracker.ui.components.rise
 import dev.eduarddragu.anotherhabittracker.ui.components.screenPadding
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -143,6 +153,8 @@ class HabitSettingsViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app,
     }
 
   private var previewCount = 0
+
+  fun today(): LocalDate = app.repository.today()
 }
 
 data class LaunchableApp(val label: String, val packageName: String)
@@ -153,6 +165,8 @@ fun HabitSettingsScreen(
   habitId: Long,
   /** Closes the page, with a message for the snackbar (null: closed without saving). */
   onDone: (message: String?) -> Unit,
+  /** A message with Undo, for a reminder time taken off by a tap. */
+  onUndoable: (String, () -> Unit) -> Unit,
   modifier: Modifier = Modifier,
   viewModel: HabitSettingsViewModel = viewModel(key = "settings-$habitId") { HabitSettingsViewModel(app, habitId) },
 ) {
@@ -168,13 +182,19 @@ fun HabitSettingsScreen(
   var linkedPackage by rememberSaveable(habit.id) { mutableStateOf(habit.linkedPackage) }
   var icon by rememberSaveable(habit.id) { mutableStateOf(habit.resolvedIcon) }
   var sessionMinutes by rememberSaveable(habit.id) { mutableStateOf(SessionTimer.defaultMinutes(habit.kind, habit.sessionMinutes)) }
+  var certId by rememberSaveable(habit.id) { mutableStateOf(habit.certId) }
+  var examDay by rememberSaveable(habit.id) { mutableStateOf(habit.examDate?.toEpochDay()) }
+  // The cert whose exam date is being picked: a cert is only set together with its date.
+  var pickingExamFor by rememberSaveable { mutableStateOf<String?>(null) }
   // Which list a new time goes to: weekdays or the weekend.
   var pickingFor by rememberSaveable { mutableStateOf<String?>(null) }
+  // Which reminder list is on screen.
+  var showingWeekend by rememberSaveable { mutableStateOf(false) }
   var pickingApp by rememberSaveable { mutableStateOf(false) }
   var confirmingBack by rememberSaveable { mutableStateOf(false) }
 
   // Back with something changed and not saved asks first: a reminder list takes a while to set up.
-  val changed = name.trim() != habit.name || times != habit.reminderTimes || weekendTimes != habit.weekendReminderTimes || linkedPackage != habit.linkedPackage || icon != habit.resolvedIcon || sessionMinutes != SessionTimer.defaultMinutes(habit.kind, habit.sessionMinutes)
+  val changed = name.trim() != habit.name || times != habit.reminderTimes || weekendTimes != habit.weekendReminderTimes || linkedPackage != habit.linkedPackage || icon != habit.resolvedIcon || sessionMinutes != SessionTimer.defaultMinutes(habit.kind, habit.sessionMinutes) || certId != habit.certId || examDay != habit.examDate?.toEpochDay()
   BackHandler(enabled = changed && !busy) { confirmingBack = true }
 
   val linkedLabel = linkedPackage?.let { pkg -> apps.firstOrNull { it.packageName == pkg }?.label ?: "$pkg (not installed)" } ?: "None"
@@ -185,29 +205,44 @@ fun HabitSettingsScreen(
   Column(modifier) {
   Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(screenPadding()), verticalArrangement = Arrangement.spacedBy(24.dp)) {
     ScreenTitle("Settings", name.ifBlank { habit.name }, Modifier.rise(arrival[0], 16.dp), icon = icon)
-    Column(Modifier.rise(arrival[1], 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      SectionLabel("Name and icon")
-      Field(name, { name = it }, label = "Name", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
-      IconPicker(icon, onPick = { icon = it })
-    }
 
-    Column(Modifier.rise(arrival[2], 16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-      // Workdays and weekends can differ: lunch and evening during the week, spread out on Saturday
-      // and Sunday.
-      ReminderList(
-        label = if (weekendTimes == null) "Reminders" else "Reminders · weekdays",
-        times = times,
-        onChange = { times = it },
-        onAdd = { pickingFor = WEEKDAYS },
-        onPreview = { viewModel.preview(habit) },
-      )
-      val weekend = weekendTimes
-      if (weekend == null) {
-        TextAction("Different times on weekends", onClick = { weekendTimes = times })
-      } else {
+    // Who the habit is first, then how it runs, and its reminders last, where they have room.
+    Column(Modifier.rise(arrival[1], 16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel("Name and icon")
+        Field(name, { name = it }, label = "Name", keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), singleLine = true, modifier = Modifier.fillMaxWidth())
+        IconPicker(icon, onPick = { icon = it })
+      }
+      val certs = viewModel.curriculum.certs
+      if (habit.kind == HabitKind.STUDY && certs.isNotEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          ReminderList(label = "Reminders · weekend", times = weekend, onChange = { weekendTimes = it }, onAdd = { pickingFor = WEEKEND }, onPreview = null)
-          TextAction("Same as weekdays", onClick = { weekendTimes = null })
+          SectionLabel("Studying for")
+          val cert = certs.firstOrNull { it.id == certId }
+          val exam = examDay?.let(LocalDate::ofEpochDay)
+          if (cert == null) {
+            Text("Study for one exam until its date, instead of a topic a day. Passing it marks its topics as known.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+              certs.forEach { OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = { pickingExamFor = it.id }, border = cardOutline()) { Text(it.name) } }
+            }
+          } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+              Column(Modifier.weight(1f)) {
+                Text(cert.name, style = MaterialTheme.typography.bodyLarge)
+                Text(listOfNotNull(cert.code, exam?.let { "exam ${it.format(EXAM_FORMAT)}" } ?: "no exam date").joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+              }
+              val action = if (exam == null) "Set date" else "Change date"
+              TextAction(action, onClick = { pickingExamFor = cert.id }, modifier = Modifier.semantics { contentDescription = exam?.let { "Change the exam date, now ${it.format(EXAM_FORMAT)}" } ?: "Set the exam date" })
+            }
+            // The way out, muted: it shouldn't invite a tap.
+            TextAction(
+              "Stop studying for it",
+              onClick = {
+                certId = null
+                examDay = null
+              },
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
         }
       }
 
@@ -235,10 +270,53 @@ fun HabitSettingsScreen(
         }
       }
     }
+
+    Column(Modifier.rise(arrival[2], 16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+      // Workdays and weekends can differ: lunch and evening during the week, spread out on Saturday
+      // and Sunday. One list shows at a time; a time's tone follows from its place in it.
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel("Reminders")
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+          listOf("Weekdays", "Weekend").forEachIndexed { index, label ->
+            SegmentedButton(
+              selected = showingWeekend == (index == 1),
+              onClick = { showingWeekend = index == 1 },
+              shape = SegmentedButtonDefaults.itemShape(index, 2, MaterialTheme.shapes.medium),
+              icon = {},
+            ) {
+              Text(label)
+            }
+          }
+        }
+        val weekend = weekendTimes
+        when {
+          !showingWeekend ->
+            ReminderChips(times, onAdd = { pickingFor = WEEKDAYS }) { time ->
+              times = formatReminderTimes(parseReminderTimes(times) - time)
+              // A tap is easy to make by mistake, and Save keeps it: the time can come back.
+              onUndoable("${formatTime(time)} removed.") { times = formatReminderTimes(parseReminderTimes(times) + time) }
+            }
+          weekend == null -> Text("Same times as weekdays.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          else ->
+            ReminderChips(weekend, onAdd = { pickingFor = WEEKEND }) { time ->
+              weekendTimes = formatReminderTimes(parseReminderTimes(weekendTimes.orEmpty()) - time)
+              onUndoable("${formatTime(time)} removed.") { weekendTimes?.let { weekendTimes = formatReminderTimes(parseReminderTimes(it) + time) } }
+            }
+        }
+        // The list's own action first, then hearing what a reminder sounds like.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+          if (showingWeekend) {
+            if (weekend == null) TextAction("Set different times", onClick = { weekendTimes = times })
+            else TextAction("Same as weekdays", onClick = { weekendTimes = null })
+          }
+          TextAction("Preview a reminder", onClick = { viewModel.preview(habit) })
+        }
+      }
+    }
   }
 
   // Save waits in a bar at the bottom, like the log form's, from the first change on: with two
-  // reminder lists the end of the page is far. Nothing changed, nothing to save, and the page is calm.
+  // reminder lists the end of the page can be far. Nothing changed, nothing to save, and the page is calm.
   AnimatedVisibility(
     visible = changed,
     enter = expandVertically(tween(280, easing = Motion.EaseUi), expandFrom = Alignment.Top) + fadeIn(tween(160, delayMillis = 60)),
@@ -251,7 +329,7 @@ fun HabitSettingsScreen(
           shape = MaterialTheme.shapes.medium,
           enabled = name.isNotBlank() && !busy,
           modifier = Modifier.fillMaxWidth().height(48.dp),
-          onClick = { viewModel.save(habit.copy(name = name.trim(), reminderTimes = times, weekendReminderTimes = weekendTimes, linkedPackage = linkedPackage, icon = icon.name, sessionMinutes = sessionMinutes.takeIf { it != SessionTimer.defaultMinutes(habit.kind) })) { onDone("Saved.") } },
+          onClick = { viewModel.save(habit.copy(name = name.trim(), reminderTimes = times, weekendReminderTimes = weekendTimes, linkedPackage = linkedPackage, icon = icon.name, sessionMinutes = sessionMinutes.takeIf { it != SessionTimer.defaultMinutes(habit.kind) }, certId = certId, examDate = examDay?.let(LocalDate::ofEpochDay))) { onDone("Saved.") } },
         ) {
           Text("Save")
         }
@@ -288,6 +366,21 @@ fun HabitSettingsScreen(
       dismissButton = { TextButton(onClick = { confirmingBack = false }) { Text("Keep editing") } },
     )
   }
+  pickingExamFor?.let { id ->
+    val today = viewModel.today()
+    DayPickerDialog(
+      "Exam day",
+      examDay?.let(LocalDate::ofEpochDay)?.takeIf { !it.isBefore(today) },
+      earliest = today,
+      latest = today.plusYears(1),
+      onDismiss = { pickingExamFor = null },
+      onPick = { day ->
+        certId = id
+        examDay = day.toEpochDay()
+        pickingExamFor = null
+      },
+    )
+  }
   if (pickingApp) {
     AppDialog(
       apps = apps,
@@ -301,31 +394,32 @@ fun HabitSettingsScreen(
   }
 }
 
+private val EXAM_FORMAT = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)
+
 private const val WEEKDAYS = "weekdays"
 private const val WEEKEND = "weekend"
 
-/** One list of reminder times, each with the tone it will have, plus adding one. */
+/** One list of reminder times as chips: a tap takes a time off ([onRemove]), the last chip adds one. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ReminderList(label: String, times: String, onChange: (String) -> Unit, onAdd: () -> Unit, onPreview: (() -> Unit)?) {
-  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    SectionLabel(label)
-    val parsed = parseReminderTimes(times)
-    if (parsed.isEmpty()) Text("No reminders.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    parsed.forEachIndexed { index, time ->
-      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Column {
-          Text(formatTime(time), style = Numerals)
-          Text(toneLabel(ReminderPlan.tone(index, parsed.size)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        TextAction("Remove", onClick = { onChange(formatReminderTimes(parsed - time)) }, modifier = Modifier.semantics { contentDescription = "Remove the ${formatTime(time)} reminder" })
+private fun ReminderChips(times: String, onAdd: () -> Unit, onRemove: (LocalTime) -> Unit) {
+  val parsed = parseReminderTimes(times)
+  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+      parsed.forEach { time ->
+        AssistChip(
+          onClick = { onRemove(time) },
+          label = { Text(formatTime(time)) },
+          trailingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = null, modifier = Modifier.size(16.dp)) },
+          modifier = Modifier.semantics { contentDescription = "Remove the ${formatTime(time)} reminder" },
+        )
+      }
+      if (parsed.size < ReminderScheduler.MAX_SLOTS) {
+        AssistChip(onClick = onAdd, label = { Text("Add") }, leadingIcon = { Icon(painterResource(R.drawable.ic_add), contentDescription = null, modifier = Modifier.size(16.dp)) }, modifier = Modifier.semantics { contentDescription = "Add a reminder" })
       }
     }
-    // Adding a time and hearing what a reminder sounds like belong together; with large text they wrap.
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-      if (parsed.size < ReminderScheduler.MAX_SLOTS) OutlinedButton(shape = MaterialTheme.shapes.medium, onClick = onAdd, border = cardOutline()) { Text("Add reminder") }
-      if (onPreview != null) TextAction("Preview a reminder", onClick = onPreview)
-    }
+    if (parsed.isEmpty()) Text("No reminders.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (parsed.size > 1) Text("The first opens the day, the last is the last call.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     if (parsed.size >= ReminderScheduler.MAX_SLOTS) {
       Text("That's the maximum of ${ReminderScheduler.MAX_SLOTS} reminders a day.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -365,14 +459,6 @@ private fun IconPicker(selected: HabitIcon, onPick: (HabitIcon) -> Unit) {
     }
   }
 }
-
-private fun toneLabel(tone: Tone) =
-  when (tone) {
-    Tone.OPENING -> "OPENS THE DAY"
-    Tone.NUDGE -> "NUDGE"
-    Tone.PUSH -> "PUSH"
-    Tone.LAST_CALL -> "LAST CALL"
-  }
 
 // TimePicker is still marked experimental in Material 3.
 @OptIn(ExperimentalMaterial3Api::class)

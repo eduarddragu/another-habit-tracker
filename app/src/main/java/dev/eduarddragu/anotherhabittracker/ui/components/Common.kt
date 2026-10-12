@@ -19,11 +19,17 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -55,6 +61,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.eduarddragu.anotherhabittracker.R
 import dev.eduarddragu.anotherhabittracker.theme.Motion
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
 import kotlin.math.max
 import kotlin.math.min
 
@@ -283,4 +292,27 @@ fun rememberTouchExploration(): Boolean {
     onDispose { manager?.removeTouchExplorationStateChangeListener(listener) }
   }
   return enabled
+}
+
+/** A day between [earliest] and [latest], both included, starting on [initial]; with none, Set waits for a pick. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DayPickerDialog(title: String, initial: LocalDate?, earliest: LocalDate, latest: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
+  // The picker works in UTC midnights: converting through the phone's zone could shift the day.
+  fun dayOf(millis: Long) = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+  val state =
+    rememberDatePickerState(
+      initialSelectedDateMillis = initial?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.toEpochMilli(),
+      selectableDates =
+        object : SelectableDates {
+          override fun isSelectableDate(utcTimeMillis: Long): Boolean = dayOf(utcTimeMillis).let { !it.isBefore(earliest) && !it.isAfter(latest) }
+        },
+    )
+  DatePickerDialog(
+    onDismissRequest = onDismiss,
+    confirmButton = { TextButton(onClick = { state.selectedDateMillis?.let { onPick(dayOf(it)) } }, enabled = state.selectedDateMillis != null) { Text("Set") } },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+  ) {
+    DatePicker(state, title = { Text(title, Modifier.padding(start = 24.dp, end = 12.dp, top = 16.dp)) })
+  }
 }

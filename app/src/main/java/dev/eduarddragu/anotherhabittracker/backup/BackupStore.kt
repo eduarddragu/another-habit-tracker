@@ -122,17 +122,19 @@ class BackupStore(private val app: HabitApp) {
   /**
    * Writes the local copy, and the chosen file if there is one, then reads the chosen file back: some
    * providers ignore truncation, which would leave the tail of a longer old file behind. Never throws;
-   * the outcome is recorded and shown on Home and on the Backup screen.
+   * the outcome is recorded and shown on Home and on the Backup screen. Returns false when the chosen
+   * file couldn't be written for a reason that may pass (offline, provider busy), so the worker retries.
    */
-  suspend fun save() =
+  suspend fun save(): Boolean =
     // One save at a time across the process: replacing a worker cancels it, but not the blocking IO
     // it's already in, so two runs could otherwise write the same file at once.
     saving.withLock { withContext(Dispatchers.IO) { saveNow() } }
 
-  private suspend fun saveNow() {
+  private suspend fun saveNow(): Boolean {
     val text = encodeAll()
     folder?.let { dir -> runCatching { atomicWrite(File(dir, Backups.NIGHTLY_NAME), text) }.onFailure { Log.e(HabitApp.TAG, "Local backup failed", it) } }
     val uri = nightlyUri()
+    var nightlyError: Throwable? = null
     if (uri != null) {
       val result = runCatching {
         if (!hasGrant(uri)) throw SecurityException("grant lost")
@@ -143,6 +145,7 @@ class BackupStore(private val app: HabitApp) {
         result
           .onSuccess { putLong(KEY_SAVED, System.currentTimeMillis()).remove(KEY_ERROR) }
           .onFailure { error ->
+            nightlyError = error
             Log.e(HabitApp.TAG, "Nightly backup failed", error)
             putString(
               KEY_ERROR,
@@ -156,6 +159,9 @@ class BackupStore(private val app: HabitApp) {
       }
     }
     _nightly.value = readState()
+    // A lost grant or a deleted file won't come back by waiting: those need the file chosen again.
+    val error = nightlyError
+    return error == null || error is SecurityException || error is java.io.FileNotFoundException
   }
 
   /** Keeps the newest few copies taken before an import; they'd otherwise pile up with every restore. */
@@ -249,7 +255,6 @@ class BackupStore(private val app: HabitApp) {
 /** Runs [BackupStore.save] outside any receiver's time limit; WorkManager also survives the process dying. */
 class BackupWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
   override suspend fun doWork(): Result {
-    (applicationContext as HabitApp).backups.save()
-    return Result.success()
+    return if ((applicationContext as HabitApp).backups.save()) Result.success() else Result.retry()
   }
 }

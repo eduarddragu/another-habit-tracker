@@ -39,10 +39,15 @@ class MotivationTest {
   }
 
   @Test
-  fun aStreakGetsCalledOutOnSomeDays() {
+  fun aStreakGetsLinesOfItsOwnButNeverItsLength() {
     val lines = (0L until 30L).map { Motivation.line(day.plusDays(it), false, streak = 12) }
-    assert(lines.any { "12" in it }) { "expected the streak in some line, got $lines" }
-    assert(lines.any { "12" !in it }) { "expected plain lines too, got $lines" }
+    assert(lines != (0L until 30L).map { Motivation.line(day.plusDays(it), false) }) { "expected streak lines on some days, got $lines" }
+    assert(lines.none { "12" in it }) { "unexpected streak length in $lines" }
+  }
+
+  @Test
+  fun aGrownMoonWinsTheLine() {
+    assertNotEquals(Motivation.line(day, true), Motivation.line(day, true, grew = true))
   }
 
   @Test

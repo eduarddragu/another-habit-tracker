@@ -34,7 +34,8 @@ fun rememberArrival(
   val reduced = rememberReducedMotion()
   var arrived by rememberSaveable { mutableStateOf(false) }
   val play = remember { !arrived && !reduced }
-  val steps = remember(count) { List(count) { Animatable(if (play) 0f else 1f) } }
+  // Rebuilt when the count changes (a card added): once arrived, the new steps start shown, or they would stay at 0.
+  val steps = remember(count) { List(count) { Animatable(if (play && !arrived) 0f else 1f) } }
   LaunchedEffect(Unit) {
     arrived = true
     if (!play) return@LaunchedEffect

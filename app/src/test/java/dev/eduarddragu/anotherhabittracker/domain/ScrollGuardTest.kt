@@ -31,6 +31,11 @@ class ScrollGuardTest {
   }
 
   @Test
+  fun eachGrantTakesLongerToUnlock() {
+    assertEquals(listOf(0, 5, 60, 180, 180), (0..4).map { ScrollGuard.waitSeconds(it) })
+  }
+
+  @Test
   fun leftoverTimeCarriesOverWithinTheDay() {
     val budget = ScrollBudget(day).grant().use(3 * minute)
     assertEquals(7 * minute, budget.remainingMillis)

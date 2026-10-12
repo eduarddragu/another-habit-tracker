@@ -13,12 +13,20 @@ class SessionTimerTest {
   private fun session(minutes: Int = 45) = SessionTimer.start(1, "Study", "t", day, minutes, start)
 
   @Test
-  fun countsDownAndFinishesByItself() {
+  fun countsDownThenCountsTheExtraUntilTheCap() {
     val s = session()
     assertEquals(SessionPhase.RUNNING, s.phase(start + 10 * min))
     assertEquals(35 * min, s.remaining(start + 10 * min))
-    assertEquals(SessionPhase.FINISHED, s.phase(start + 45 * min))
-    assertEquals(45, s.minutesToLog(start + 50 * min))
+    assertEquals(SessionPhase.OVERTIME, s.phase(start + 45 * min))
+    assertEquals(5 * min, s.overtime(start + 50 * min))
+    assertEquals(50, s.minutesToLog(start + 50 * min))
+    assertEquals(SessionTimer.Display(5, false), s.display(start + 50 * min))
+    assertEquals(SessionTimer.Display(30, true), s.display(start + 45 * min + 30_000))
+    assertEquals(50, s.finish(start + 50 * min).minutesToLog(start + 99 * min))
+    // Forgotten: it ends by itself an hour past its length.
+    assertEquals(SessionPhase.FINISHED, s.phase(start + 105 * min))
+    assertEquals(105, s.minutesToLog(start + 200 * min))
+    assertEquals(start + 105 * min, s.capAt(start + 50 * min))
   }
 
   @Test
@@ -27,7 +35,7 @@ class SessionTimerTest {
     assertEquals(35 * min, paused.remaining(start + 30 * min))
     val resumed = paused.resume(start + 30 * min)
     assertEquals(35 * min, resumed.remaining(start + 30 * min))
-    assertEquals(SessionPhase.FINISHED, resumed.phase(start + 65 * min))
+    assertEquals(SessionPhase.OVERTIME, resumed.phase(start + 65 * min))
   }
 
   @Test
@@ -39,9 +47,9 @@ class SessionTimerTest {
   }
 
   @Test
-  fun aLateFinishNeverCountsExtraTime() {
-    val ended = session(30).finish(start + 50 * min)
-    assertEquals(30, ended.minutesToLog(start + 60 * min))
+  fun aLateFinishNeverCountsPastTheCap() {
+    val ended = session(30).finish(start + 200 * min)
+    assertEquals(90, ended.minutesToLog(start + 300 * min))
   }
 
   @Test
@@ -51,7 +59,8 @@ class SessionTimerTest {
     val extended = over.extend(start + 40 * min)
     assertEquals(SessionPhase.RUNNING, extended.phase(start + 40 * min))
     assertEquals(5 * min, extended.remaining(start + 40 * min))
-    assertEquals(35, extended.finish(start + 50 * min).minutesToLog(start + 50 * min))
+    // The ten extra minutes before +5 were counted too.
+    assertEquals(50, extended.finish(start + 50 * min).minutesToLog(start + 50 * min))
   }
 
   @Test
@@ -117,7 +126,9 @@ class SessionTimerTest {
     // Five minutes long: the wind-down is its last third, not all of it.
     assertEquals("Almost done. Stay with the breath.", SessionTimer.line(meditation, start + 4 * min))
     assertTrue(SessionTimer.line(meditation, start + 2 * min) != "Almost done. Stay with the breath.")
-    assertEquals("Time. Open your eyes slowly.", SessionTimer.line(meditation, start + 5 * min))
+    assertEquals("Time. Open your eyes slowly.", SessionTimer.line(meditation.finish(start + 5 * min), start + 5 * min))
+    assertEquals("Time's up. Keep going if it flows.", SessionTimer.line(meditation, start + 6 * min))
+    assertEquals("About 7 min more than planned. Nice.", SessionTimer.line(meditation.finish(start + 12 * min), start + 12 * min))
     assertEquals(SessionKind.STUDY, SessionKind.guess("topic"))
     assertEquals(SessionKind.CHORES, SessionKind.of(HabitKind.SIMPLE, "Chores", null, null))
     assertEquals(SessionKind.READING, SessionKind.of(HabitKind.SIMPLE, "Reading", null, null))
@@ -156,14 +167,16 @@ class SessionTimerTest {
     // Started at 23:50: still running at 00:00:30, so it carries on and ends on its own alarm.
     assertEquals(false, session(30).endsAtMidnight(tomorrow, start + 10 * min))
     assertEquals(true, session(30).pause(start + 5 * min).endsAtMidnight(tomorrow, start + 10 * min))
-    assertEquals("alarm lost", true, session(30).endsAtMidnight(tomorrow, start + 40 * min))
+    assertEquals("in extra time", false, session(30).endsAtMidnight(tomorrow, start + 40 * min))
+    assertEquals("alarm lost", true, session(30).endsAtMidnight(tomorrow, start + 100 * min))
     assertEquals("today's", false, session(30).pause(start).endsAtMidnight(day, start + 10 * min))
   }
 
-  // A reboot: saved at [savedElapsed] on the old boot's clock, read [later] wall time after, [sinceBoot] into the new boot.
+  // A reboot, as SessionStore reads it back: saved at [savedElapsed] on the old boot's clock, read
+  // [later] wall time after, [sinceBoot] into the new boot.
   private fun afterReboot(saved: FocusSession, savedElapsed: Long, later: Long, sinceBoot: Long = 2 * min): FocusSession {
     val wall = 1_800_000_000_000L
-    return saved.shifted(SessionTimer.rebootShift(sameBoot = false, savedWall = wall, savedElapsed = savedElapsed, nowWall = wall + later, nowElapsed = sinceBoot))
+    return saved.shifted(SessionTimer.rebootShift(sameBoot = false, savedWall = wall, savedElapsed = savedElapsed, nowWall = wall + later, nowElapsed = sinceBoot)).afterReboot(sinceBoot)
   }
 
   @Test
@@ -174,10 +187,17 @@ class SessionTimerTest {
   }
 
   @Test
-  fun aRebootPastTheEndFinishesItCappedAtItsLength() {
-    val s = afterReboot(session(30), savedElapsed = start, later = 40 * min)
+  fun aRebootPastTheCapFinishesItAtItsLength() {
+    val s = afterReboot(session(30), savedElapsed = start, later = 200 * min)
     assertEquals(SessionPhase.FINISHED, s.phase(2 * min))
-    assertEquals(30 * min, s.elapsed(2 * min))
+    assertEquals(30, s.minutesToLog(2 * min))
+  }
+
+  @Test
+  fun timeWithThePhoneOffIsNeverExtraTime() {
+    // Off at minute 25, back 50 minutes after the save: no "+20 MIN EXTRA" nobody studied.
+    val s = afterReboot(session(30), savedElapsed = start + 25 * min, later = 50 * min)
+    assertEquals(SessionPhase.FINISHED, s.phase(2 * min))
     assertEquals(30, s.minutesToLog(2 * min))
   }
 

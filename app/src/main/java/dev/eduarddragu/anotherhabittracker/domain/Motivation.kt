@@ -21,15 +21,26 @@ object Motivation {
       "Boring days count the same. Annoying, but true.",
     )
 
-  /** Used on some days once any habit has a streak of at least STREAK_LINES_FROM. */
+  /**
+   * Used on some days once any habit has a streak of at least STREAK_LINES_FROM. No numbers: Home has
+   * several habits with streaks of their own, and their cards already show them.
+   */
   private val streaking =
     listOf(
-      "Day %d. Don't you dare stop now.",
-      "%d days straight. Keep feeding it.",
-      "%d days in a row. Today is not the day it breaks.",
-      "A %d-day streak doesn't defend itself.",
-      "%d days. The chain is getting heavy. Good.",
-      "%1\$d days. Quitting now wastes %1\$d days.",
+      "Keep feeding it. It's working.",
+      "Today is not the day it breaks.",
+      "The chain is getting heavy. Good.",
+      "You've built something here. Don't hand it back.",
+      "Momentum is on your side. Use it.",
+      "Quitting now would waste all of it.",
+    )
+
+  /** A moon grew today (see Orbit): the planet shows which one, the line only points at it. */
+  private val grewLines =
+    listOf(
+      "Something new in orbit.",
+      "Look up. Something grew.",
+      "The planet has company. Earned.",
     )
 
   private val allDone =
@@ -87,15 +98,17 @@ object Motivation {
   }
 
   /**
-   * Same line all day (seeded by the date); a different pool once everything is logged. With a streak
-   * going, about half the days call it out by its length. [slipped]: a habit still open today missed
+   * Same line all day (seeded by the date); a different pool once everything is logged. [grew]: a
+   * habit's moon grew today, which wins over the rest. With a streak going, about half the days get a
+   * line about keeping it, never its length. [slipped]: a habit still open today missed
    * yesterday right after a streak (HabitSummary.slipped). [minutes]: the open habit's usual session,
    * for the lines that name it ("a few minutes" without).
    */
-  fun line(day: LocalDate, everythingDone: Boolean, streak: Int = 0, slipped: Boolean = false, minutes: Int? = null): String {
+  fun line(day: LocalDate, everythingDone: Boolean, streak: Int = 0, slipped: Boolean = false, minutes: Int? = null, grew: Boolean = false): String {
     val random = Random(day.toEpochDay())
+    if (grew) return grewLines.random(random)
     if (everythingDone) return allDone.random(random)
     if (slipped) return slippedLines.random(random)
-    return if (streak >= STREAK_LINES_FROM && random.nextBoolean()) streaking.random(random).format(streak) else withMinutes(daily.random(random), minutes)
+    return if (streak >= STREAK_LINES_FROM && random.nextBoolean()) streaking.random(random) else withMinutes(daily.random(random), minutes)
   }
 }

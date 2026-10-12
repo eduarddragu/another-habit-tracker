@@ -11,6 +11,8 @@ enum class PickKind {
   REVIEW,
   /** Chosen by hand to keep going on the last session's topic: a deep dive, over the picker. */
   CONTINUE,
+  /** The certification being studied for (see Certs): the topic every day until the exam. */
+  CERT,
 }
 
 /** A study session as the "keep going" rule sees it. */
@@ -83,7 +85,20 @@ object TopicPicker {
   fun isUnlocked(topic: Topic, latest: Map<String, TopicMark>): Boolean =
     topic.requires.all { req -> latest[req]?.let { it.score >= UNLOCK_SCORE } == true }
 
-  fun dueDate(mark: TopicMark): LocalDate? = if (mark.known) null else mark.day.plusDays(REVIEW_AFTER_DAYS.getValue(mark.score.coerceIn(1, 5)))
+  /**
+   * When [mark]'s topic comes back: its score's interval, counted in days that aren't [daysOff], so
+   * time off pushes reviews forward instead of piling them up for the return.
+   */
+  fun dueDate(mark: TopicMark, daysOff: Set<LocalDate> = emptySet()): LocalDate? {
+    if (mark.known) return null
+    var left = REVIEW_AFTER_DAYS.getValue(mark.score.coerceIn(1, 5))
+    var day = mark.day
+    while (left > 0) {
+      day = day.plusDays(1)
+      if (day !in daysOff) left--
+    }
+    return day
+  }
 
   /** A topic whose review date has come: when it came, and the last score it had. */
   data class DueReview(val topic: Topic, val due: LocalDate, val score: Int)
@@ -92,10 +107,10 @@ object TopicPicker {
    * Every topic due for review on [day], the weakest and longest-waiting first: what the picker
    * brings back one at a time, shown in full so a review can be chosen by hand.
    */
-  fun dueReviews(curriculum: Curriculum, marks: List<TopicMark>, day: LocalDate): List<DueReview> {
+  fun dueReviews(curriculum: Curriculum, marks: List<TopicMark>, day: LocalDate, daysOff: Set<LocalDate> = emptySet()): List<DueReview> {
     val latest = latest(marks, day)
     return curriculum.topics
-      .mapNotNull { topic -> latest[topic.id]?.let { mark -> dueDate(mark)?.takeIf { !it.isAfter(day) }?.let { DueReview(topic, it, mark.score) } } }
+      .mapNotNull { topic -> latest[topic.id]?.let { mark -> dueDate(mark, daysOff)?.takeIf { !it.isAfter(day) }?.let { DueReview(topic, it, mark.score) } } }
       .sortedWith(compareBy<DueReview> { it.score >= UNLOCK_SCORE }.thenBy { it.due })
   }
 
@@ -103,17 +118,17 @@ object TopicPicker {
    * The pick as it was on [day], for a session logged late ("yesterday"): only what was known by then
    * counts. A topic marked as known today must not change yesterday's topic.
    */
-  fun pickOn(curriculum: Curriculum, marks: List<TopicMark>, day: LocalDate): TopicPick? =
-    pick(curriculum, marks.filter { it.day.isBefore(day) || (it.known && !it.day.isAfter(day)) }, day)
+  fun pickOn(curriculum: Curriculum, marks: List<TopicMark>, day: LocalDate, daysOff: Set<LocalDate> = emptySet()): TopicPick? =
+    pick(curriculum, marks.filter { it.day.isBefore(day) || (it.known && !it.day.isAfter(day)) }, day, daysOff)
 
-  fun pick(curriculum: Curriculum, marks: List<TopicMark>, day: LocalDate): TopicPick? {
+  fun pick(curriculum: Curriculum, marks: List<TopicMark>, day: LocalDate, daysOff: Set<LocalDate> = emptySet()): TopicPick? {
     val random = Random(day.toEpochDay() * 7919 + 30)
     val roll = random.nextDouble()
     val latest = latest(marks, day)
 
     val due =
       curriculum.topics
-        .mapNotNull { topic -> latest[topic.id]?.let { mark -> dueDate(mark)?.takeIf { !it.isAfter(day) }?.let { Triple(it, topic, mark) } } }
+        .mapNotNull { topic -> latest[topic.id]?.let { mark -> dueDate(mark, daysOff)?.takeIf { !it.isAfter(day) }?.let { Triple(it, topic, mark) } } }
         .sortedBy { it.first }
     due.firstOrNull { it.third.score < UNLOCK_SCORE }?.let { return TopicPick(it.second, PickKind.REVIEW) }
 
@@ -138,8 +153,8 @@ object TopicPicker {
     }
 
     // Everything seen and nothing due: revisit the oldest topic that wasn't marked as known.
-    return latest.values.filter { !it.known && it.topicId in curriculum.byId }.minByOrNull { it.day }?.let {
-      TopicPick(curriculum.byId.getValue(it.topicId), PickKind.REVIEW)
+    return latest.values.filter { !it.known && it.topicId in curriculum.topicById }.minByOrNull { it.day }?.let {
+      TopicPick(curriculum.topicById.getValue(it.topicId), PickKind.REVIEW)
     }
   }
 

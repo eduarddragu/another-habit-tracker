@@ -27,9 +27,24 @@ class TodaysTopicTest {
     focusTopic: String? = null,
     timeOff: List<TimeOffPeriod> = emptyList(),
     kind: HabitKind = HabitKind.STUDY,
+    cert: TopicPick? = null,
   ): Pair<TodaysTopic, TopicPick?> {
     val built = HabitSummaries.build(kind, records, today) { curriculum }
-    return TodaysTopics.resolve(kind, built.pick, built.topicMarks, records, today, focusDay, focusTopic, timeOff, curriculum) to built.pick
+    return TodaysTopics.resolve(kind, built.pick, built.topicMarks, records, today, focusDay, focusTopic, timeOff, curriculum, cert) to built.pick
+  }
+
+  private val cert = Certs.pick(Cert("cert-x", "X-01", "Cert X", "a", listOf("a-root")), today.plusDays(30), today)
+
+  @Test
+  fun aCertWinsOverThePickerAndTheHeldTopic() {
+    val (topic, _) = resolve(listOf(session(5, "a-root")), timeOff = listOf(TimeOffPeriod(start = today.minusDays(4))), cert = cert)
+    assertEquals(cert, topic.pick)
+  }
+
+  @Test
+  fun aTopicChosenByHandWinsOverTheCert() {
+    val (topic, _) = resolve(listOf(session(1, "a-root")), today, "b-one", cert = cert)
+    assertEquals("b-one", topic.pick?.topic?.id)
   }
 
   private fun topic(id: String) = curriculum.byId.getValue(id)

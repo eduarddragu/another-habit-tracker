@@ -50,6 +50,9 @@ data class BackupHabit(
   val weekendReminderTimes: String? = null,
   /** Added in version 4; null means the kind's default length. */
   val sessionMinutes: Int? = null,
+  /** Added in version 5: the certification studied for, and its exam day (ISO date). */
+  val certId: String? = null,
+  val examDate: String? = null,
 )
 
 @Serializable
@@ -79,7 +82,7 @@ object Backups {
    * Bump for every change to the fields, added ones included: an older build must refuse a newer file
    * rather than drop what it doesn't know. Older files are brought up to date in [decode].
    */
-  const val VERSION = 4
+  const val VERSION = 5
 
   /** The name of the nightly file. */
   const val NIGHTLY_NAME = "$FORMAT.json"
@@ -126,6 +129,7 @@ object Backups {
     check(file.entries.map { it.id }.toSet().size == file.entries.size) { "Two sessions in this file share an id." }
     check(file.habits.all { runCatching { HabitKind.valueOf(it.kind) }.isSuccess }) { "A habit in this file has an unknown kind." }
     check(file.habits.all { it.sessionMinutes == null || it.sessionMinutes in 1..MAX_MINUTES }) { "A habit in this file has a session length outside a day." }
+    check(file.habits.all { habit -> habit.examDate == null || runCatching { LocalDate.parse(habit.examDate) }.isSuccess }) { "A habit in this file has an unreadable exam date." }
     fun inRange(day: LocalDate, latest: LocalDate = today.plusDays(1)) = !day.isBefore(EARLIEST_DAY) && !day.isAfter(latest)
     // Time off can be planned up to a year ahead, and splitting a period around a new one can move
     // a start into the future too; a second year leaves room for a phone whose clock was behind.

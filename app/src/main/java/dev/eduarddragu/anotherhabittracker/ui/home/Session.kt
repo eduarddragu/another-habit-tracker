@@ -56,20 +56,16 @@ import dev.eduarddragu.anotherhabittracker.domain.FocusSession
 import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
 import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
 import dev.eduarddragu.anotherhabittracker.reminders.Sessions
+import dev.eduarddragu.anotherhabittracker.reminders.endsAtClock
 import dev.eduarddragu.anotherhabittracker.theme.NumeralsDisplay
 import dev.eduarddragu.anotherhabittracker.ui.components.DayCard
 import dev.eduarddragu.anotherhabittracker.ui.components.NumberedSteps
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
 import dev.eduarddragu.anotherhabittracker.ui.components.cardOutline
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
 
 /** The disc stays butter in both themes, so the numbers on it are always dark ink. */
 private val DiscInk = Color(0xFF1A1714)
-
-private val ENDS_FORMAT = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
  * The session's clock, ticking once a second while the screen is up and the session runs (never
@@ -91,7 +87,7 @@ fun rememberSessionTick(app: HabitApp, session: FocusSession?): State<Long> {
       while (true) {
         val now = app.sessions.now()
         value = now
-        if (session.remaining(now) <= 0) {
+        if (session.phase(now) == SessionPhase.FINISHED) {
           Sessions.end(app)
           return@repeatOnLifecycle
         }
@@ -100,10 +96,6 @@ fun rememberSessionTick(app: HabitApp, session: FocusSession?): State<Long> {
     }
   }
 }
-
-/** When the session will end, as a clock time: "16:40". */
-fun endsAtClock(session: FocusSession, now: Long): String =
-  Instant.ofEpochMilli(System.currentTimeMillis() + session.remaining(now)).atZone(ZoneId.systemDefault()).toLocalTime().format(ENDS_FORMAT)
 
 /** The screen stays on while a session is running and Home is showing: the phone is the clock on the desk. */
 @Composable
@@ -116,7 +108,8 @@ fun KeepScreenOn(on: Boolean) {
 }
 
 /**
- * On the disc: minutes left (seconds in the last one), or the minutes done once it's over. Recomposes
+ * On the disc: minutes left (seconds in the last one), the extra past the end ("+5"), or the minutes
+ * done once it's over. Recomposes
  * only when what it shows changes: once a minute, once a second in the last one.
  */
 @Composable
@@ -128,6 +121,7 @@ fun SessionNumerals(session: FocusSession, now: () -> Long, modifier: Modifier =
       SessionPhase.PAUSED -> "PAUSED"
       SessionPhase.FINISHED -> "MIN DONE"
       SessionPhase.RUNNING -> if (display.seconds) "SEC LEFT" else "MIN LEFT"
+      SessionPhase.OVERTIME -> if (display.seconds) "SEC EXTRA" else "MIN EXTRA"
     }
   // Paused, the number dims (the grey arc and the header say why); the caption stays dark ink, since
   // accent on butter is too faint for 10sp.
@@ -139,7 +133,7 @@ fun SessionNumerals(session: FocusSession, now: () -> Long, modifier: Modifier =
     Column(modifier.semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally) {
       // A fixed width, drawn from the right: DM Sans has no tabular figures, so seconds would jiggle.
       Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
-        Text(display.value.toString(), style = NumeralsDisplay, color = DiscInk.copy(alpha = dim), textAlign = TextAlign.Center)
+        Text(if (phase == SessionPhase.OVERTIME) "+${display.value}" else display.value.toString(), style = NumeralsDisplay, color = DiscInk.copy(alpha = dim), textAlign = TextAlign.Center)
       }
       Text(caption, style = MaterialTheme.typography.labelSmall, color = DiscInk.copy(alpha = 0.7f))
     }
@@ -175,7 +169,7 @@ fun SessionCard(
   modifier: Modifier = Modifier,
 ) {
   val phase by remember(session, now) { derivedStateOf { session.phase(now()) } }
-  // Only read once it's over, when it no longer changes.
+  // Read once it's over, or once a minute in extra time.
   val minutesToLog by remember(session, now) { derivedStateOf { session.minutesToLog(now()) } }
   val topic = session.topicId?.let { curriculum.byId[it] }
   // Warm only for a session that counted; one too short to log stays plain.
@@ -210,6 +204,12 @@ fun SessionCard(
           Button(onClick = { Sessions.resume(app) }, shape = MaterialTheme.shapes.medium) { Text("Resume") }
           TextAction("+5 min", onClick = { Sessions.extend(app) }, modifier = Modifier.padding(horizontal = 12.dp))
           TextAction("End", onClick = { Sessions.end(app) })
+        }
+        // Time's up but still counting: one tap ends it and logs everything, the extra included.
+        SessionPhase.OVERTIME -> {
+          val minutes = minutesToLog
+          if (minutes != null) Button(onClick = { Sessions.end(app); onLog(session.habitId, minutes, session.day.toEpochDay()) }, shape = MaterialTheme.shapes.medium) { Text("Log $minutes min") }
+          TextAction("End", onClick = { Sessions.end(app) }, modifier = Modifier.padding(horizontal = 12.dp))
         }
         SessionPhase.FINISHED -> {
           val minutes = minutesToLog
@@ -256,6 +256,7 @@ fun SessionLabel(phase: SessionPhase, ends: String, modifier: Modifier = Modifie
   when (phase) {
     SessionPhase.RUNNING -> CardLabel(lead = listOf("IN SESSION"), state = "NOW", trail = listOf("ENDS $ends"), modifier = modifier)
     SessionPhase.PAUSED -> CardLabel(lead = listOf("IN SESSION"), state = "PAUSED", modifier = modifier)
+    SessionPhase.OVERTIME -> CardLabel(lead = listOf("IN SESSION"), state = "EXTRA TIME", modifier = modifier)
     SessionPhase.FINISHED -> CardLabel(state = "SESSION OVER", modifier = modifier)
   }
 

@@ -34,7 +34,7 @@ object Notifications {
   // shifts when a raw resource is added).
   private const val CHANNEL_REMINDERS = "reminders_v4"
   private const val CHANNEL_LAST_CALL = "last_call_v4"
-  /** The Sunday recap: its own category, so it can be turned off without touching reminders. */
+  /** The Monday recap: its own category, so it can be turned off without touching reminders. */
   private const val CHANNEL_RECAP = "recap_v1"
 
   /** A focus session: the silent countdown, and the chime when it's over. */
@@ -49,7 +49,9 @@ object Notifications {
   private const val CHANNEL_CONFIRM = "confirm_v1"
 
   /** Bumped whenever a channel is added: the set below is created again once. */
-  private const val CHANNELS_VERSION = "v6"
+  // Bumped when a channel's name or description changes too: re-creating an existing channel updates
+  // only those, never its sound or vibration.
+  private const val CHANNELS_VERSION = "v7"
   private val RETIRED_CHANNELS = listOf("reminders", "last_call", "reminders_v2", "last_call_v2", "reminders_v3", "last_call_v3")
 
   // Timings in ms (off, on, off, on...) and amplitudes at full strength: the default amplitude of a
@@ -108,7 +110,7 @@ object Notifications {
           enableVibration(false)
         },
         NotificationChannel(CHANNEL_RECAP, "Weekly recap", NotificationManager.IMPORTANCE_DEFAULT).apply {
-          description = "Sunday evening: how the week went"
+          description = "Monday morning: how last week went"
           configure(context, "reminder_chime", REMINDER_TIMINGS, REMINDER_AMPLITUDES)
         },
       )
@@ -170,20 +172,29 @@ object Notifications {
 
   /**
    * The session while it runs or is paused: the topic, its questions to check the scope without
-   * opening the app, and a countdown the system keeps by itself.
+   * opening the app, and a countdown the system keeps by itself (in extra time, a count up from the
+   * end). [chime]: the time just ran out, so it rings once on the end channel.
    */
-  fun showSession(context: Context, session: FocusSession, topic: Topic?, now: Long) {
+  fun showSession(context: Context, session: FocusSession, topic: Topic?, now: Long, chime: Boolean = false) {
     val manager = NotificationManagerCompat.from(context)
     if (!manager.areNotificationsEnabled()) return
     val paused = session.phase(now) == SessionPhase.PAUSED
-    val endWall = System.currentTimeMillis() + session.remaining(now)
-    val ends = java.time.Instant.ofEpochMilli(endWall).atZone(java.time.ZoneId.systemDefault()).toLocalTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
-    val status = if (paused) "Paused. ${(session.remaining(now) + 59_999) / 60_000} min left." else "Ends $ends"
+    val overtime = session.phase(now) == SessionPhase.OVERTIME
+    // In extra time the chronometer counts up from the moment it ran out.
+    val endWall = endWall(session, now)
+    val ends = endsAtClock(session, now)
+    val status =
+      when {
+        paused -> "Paused. ${(session.remaining(now) + 59_999) / 60_000} min left."
+        overtime -> "Time's up at $ends. Counting the extra until you end it."
+        else -> "Ends $ends"
+      }
     val questions = topic?.hints?.mapIndexed { i, hint -> "${i + 1}. $hint" }?.joinToString("\n")
+    val channel = if (!chime) CHANNEL_SESSION else if (session.kind == SessionKind.STUDY) CHANNEL_SESSION_END else CHANNEL_SESSION_END_SOFT
     val builder =
-      NotificationCompat.Builder(context, CHANNEL_SESSION)
+      NotificationCompat.Builder(context, channel)
         .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle(if (paused) "Paused · ${topic?.title ?: session.habitName}" else topic?.title ?: session.habitName)
+        .setContentTitle(if (paused) "Paused · ${topic?.title ?: session.habitName}" else if (overtime) "Extra time · ${topic?.title ?: session.habitName}" else topic?.title ?: session.habitName)
         .setContentText(status)
         // A status bar chip with the time left (Android 16+ Live Updates), so the countdown is in view
         // without opening the shade.
@@ -193,17 +204,22 @@ object Notifications {
         // Swiped away anyway (ongoing doesn't stop that outside a foreground service): not brought
         // back by a reboot or an update.
         .setDeleteIntent(Sessions.action(context, SessionReceiver.ACTION_HIDE, 910_007))
-        .setOnlyAlertOnce(true)
-        .setSilent(true)
+        // The countdown is already up: only an update that may alert again rings.
+        .setOnlyAlertOnce(!chime)
+        .setSilent(!chime)
         .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
         .setContentIntent(activityIntent(context, session.habitId, EXTRA_OPEN_HABIT_ID, requestOffset = 920_000))
         .setShowWhen(!paused)
         .setUsesChronometer(!paused)
-        .setChronometerCountDown(true)
+        .setChronometerCountDown(!overtime)
         .setWhen(endWall)
+    // Extra time already counts on by itself: only End.
+    if (!overtime) {
+      builder
         .addAction(0, "+5 min", Sessions.action(context, SessionReceiver.ACTION_EXTEND, 910_001))
         .addAction(0, if (paused) "Resume" else "Pause", Sessions.action(context, if (paused) SessionReceiver.ACTION_RESUME else SessionReceiver.ACTION_PAUSE, 910_002))
-        .addAction(0, "End", Sessions.action(context, SessionReceiver.ACTION_END, 910_003))
+    }
+    builder.addAction(0, "End", Sessions.action(context, SessionReceiver.ACTION_END, 910_003))
     // The chip shows short critical text over the chronometer, and text set here is never updated:
     // while running the chip is left to the countdown, which the system keeps by itself.
     if (paused) builder.setShortCriticalText("Paused")
@@ -228,9 +244,13 @@ object Notifications {
     val builder =
       NotificationCompat.Builder(context, if (session.kind == SessionKind.STUDY) CHANNEL_SESSION_END else CHANNEL_SESSION_END_SOFT)
         .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle(if (session.remaining(now) > 0) "Session ended" else "Time's up")
+        .setContentTitle(if (session.remaining(now) > 0 || session.overtime(now) > 0) "Session ended" else "Time's up")
         .setContentText(body)
-        .setContentIntent(PendingIntent.getActivity(context, 910_004, log, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+        // Too short to count: the habit's page, not a log form with the usual length already picked.
+        .setContentIntent(
+          if (minutes != null) PendingIntent.getActivity(context, 910_004, log, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+          else activityIntent(context, session.habitId, EXTRA_OPEN_HABIT_ID, requestOffset = 920_000)
+        )
         .setAutoCancel(true)
         .setCategory(NotificationCompat.CATEGORY_ALARM)
         .setSilent(silent)

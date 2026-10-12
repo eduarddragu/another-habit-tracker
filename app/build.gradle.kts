@@ -13,8 +13,8 @@ android {
         applicationId = "dev.eduarddragu.anotherhabittracker"
         minSdk = 34
         targetSdk = 37
-        versionCode = 44
-        versionName = "1.5.0"
+        versionCode = 45
+        versionName = "1.6.0"
     }
 
     // The signing key lives outside the repo (see README). Without it, builds fall
