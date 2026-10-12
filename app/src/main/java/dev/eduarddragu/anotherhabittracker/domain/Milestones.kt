@@ -17,6 +17,9 @@ object Milestones {
       365 to "A year. Every single day of it.",
     )
 
+  /** The milestone lengths, shortest first: the stages of a habit's moon on Home (see Orbit). */
+  val days: List<Int> = lines.keys.sorted()
+
   /** The milestone line when [streak] is exactly one of them, else null. */
   fun line(streak: Int): String? = lines[streak]
 }

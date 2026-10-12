@@ -22,6 +22,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
@@ -111,7 +112,7 @@ import dev.eduarddragu.anotherhabittracker.data.HabitRepository
 import dev.eduarddragu.anotherhabittracker.data.HabitStatus
 import dev.eduarddragu.anotherhabittracker.data.resolvedIcon
 import dev.eduarddragu.anotherhabittracker.domain.Curriculum
-import dev.eduarddragu.anotherhabittracker.domain.Milestones
+import dev.eduarddragu.anotherhabittracker.domain.Orbit
 import dev.eduarddragu.anotherhabittracker.domain.Motivation
 import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
 import dev.eduarddragu.anotherhabittracker.domain.dayCount
@@ -201,6 +202,8 @@ fun HomeScreen(
   val done = current.habits.count { it.doneToday || it.frozenToday }
   val everythingDone = current.habits.isNotEmpty() && done == current.habits.size
   val streak = current.habits.maxOfOrNull { it.streak } ?: 0
+  // One moon per habit with a streak worth it (see Orbit), named for TalkBack.
+  val moons = current.habits.mapNotNull { status -> Orbit.moon(status.streak, status.doneToday, status.summary.lost)?.let { status.habit.name to it } }
   // A day off: the page drops the pressure (no "0 of 2", no provocations).
   val paused = current.habits.isNotEmpty() && current.habits.all { it.summary.pausedToday || it.doneToday }  && current.habits.any { it.summary.pausedToday }
   // Read before rememberIntro marks the entrance as played.
@@ -243,7 +246,7 @@ fun HomeScreen(
       // The ring closes once it's over (not for one too short to count): one calm "done".
       val counted by remember(active, clock) { derivedStateOf { phase == SessionPhase.FINISHED && active?.minutesToLog(clock()) != null } }
       val closed by animateFloatAsState(if (counted) 1f else 0f, tween(if (reduced) 0 else Motion.LONG * 2, easing = Motion.EaseEntrance), label = "closed")
-      KeepScreenOn(phase == SessionPhase.RUNNING)
+      KeepScreenOn(phase == SessionPhase.RUNNING || phase == SessionPhase.OVERTIME)
       val haptics = LocalHapticFeedback.current
       FinishHaptic(active, clock) { haptics.performHapticFeedback(HapticFeedbackType.Confirm) }
       val study = current.habits.firstOrNull { it.habit.kind == HabitKind.STUDY }
@@ -268,18 +271,26 @@ fun HomeScreen(
         if (inSession && active != null) {
           SessionHeader(active, clock)
         } else {
-          // A streak reaching a milestone today takes over the line of the day; time off, everything.
-          val milestone = current.habits.filter { it.doneToday }.firstNotNullOfOrNull { Milestones.line(it.streak) }
           // The day after a slip says so; the minutes are those of the first habit still open.
           val open = current.habits.firstOrNull { it.summary.dayOpen }?.habit
           val line =
             if (paused) Motivation.timeOffLine(current.today)
-            else milestone ?: Motivation.line(current.today, everythingDone, streak, slipped = current.habits.any { it.summary.slipped && it.summary.dayOpen }, minutes = open?.let { SessionTimer.defaultMinutes(it.kind, it.sessionMinutes) })
+            else Motivation.line(current.today, everythingDone, streak, slipped = current.habits.any { it.summary.slipped && it.summary.dayOpen }, minutes = open?.let { SessionTimer.defaultMinutes(it.kind, it.sessionMinutes) }, grew = moons.any { it.second.grewToday })
           Hero(current.today, now, if (paused) "TIME OFF" else "$done OF ${current.habits.size} DONE", line, intro, compact)
         }
       }
       // Still while it's a timer: nothing moves but the arc, once a second.
       val idle = rememberPlanetIdle(waitForEntrance = firstRun, enabled = active == null)
+      // A moon that grew today reaches its new size once the planet has settled.
+      val grownKey = moons.filter { it.second.grewToday }.map { it.first }
+      val grown = remember(current.today, grownKey) { Animatable(if (grownKey.isEmpty()) 1f else 0f) }
+      LaunchedEffect(grown) {
+        if (reduced) grown.snapTo(1f)
+        else {
+          delay(if (firstRun) 1400 else 400)
+          grown.animateTo(1f, tween(Motion.ENTRANCE * 3, easing = Motion.EaseEntrance))
+        }
+      }
       // A little more air under the planet than above it: it separates the greeting from the cards.
       // Tapped, it offers a session; during one, it is the timer.
       val press = remember { MutableInteractionSource() }
@@ -293,7 +304,7 @@ fun HomeScreen(
                 scaleX = dip
                 scaleY = dip
               }
-              .semantics { contentDescription = "Focus session" }
+              .semantics { contentDescription = listOfNotNull("Focus session", Descriptions.moons(moons)).joinToString(". ") }
               .clickable(interactionSource = press, indication = null, enabled = active == null && study != null, onClickLabel = "Offer a focus session", role = Role.Button) { choosing = !choosing },
         ) {
           Planet(
@@ -307,6 +318,9 @@ fun HomeScreen(
             left = { if (phase == SessionPhase.FINISHED) 0f else active?.left(clock()) ?: 1f },
             paused = { phase == SessionPhase.PAUSED },
             closed = { closed },
+            moons = moons.map { it.second },
+            orbit = { idle.orbit.value },
+            grown = { grown.value },
           )
           if (active != null) SessionNumerals(active, clock, Modifier.graphicsLayer { alpha = ((morph.value - 0.5f) * 2f).coerceIn(0f, 1f); translationY = if (reduced) 0f else (1f - alpha) * 8.dp.toPx() })
         }
@@ -774,7 +788,7 @@ private fun rememberLastCallPulse(today: LocalDate, due: Boolean, firstRun: Bool
   return pulse
 }
 
-private class PlanetIdle(val drift: State<Float>, val squash: State<Float>, val breathe: State<Float>)
+private class PlanetIdle(val drift: State<Float>, val squash: State<Float>, val breathe: State<Float>, val orbit: State<Float>)
 
 /**
  * The planet's endless idle loop: the ring swings between -30 and -6 degrees (7 s each way) while it
@@ -785,13 +799,15 @@ private class PlanetIdle(val drift: State<Float>, val squash: State<Float>, val 
  */
 @Composable
 private fun rememberPlanetIdle(waitForEntrance: Boolean, enabled: Boolean = true): PlanetIdle {
-  if (rememberReducedMotion() || !enabled) return remember { PlanetIdle(mutableFloatStateOf(0f), mutableFloatStateOf(1f), mutableFloatStateOf(1f)) }
+  if (rememberReducedMotion() || !enabled) return remember { PlanetIdle(mutableFloatStateOf(0f), mutableFloatStateOf(1f), mutableFloatStateOf(1f), mutableFloatStateOf(0f)) }
   val loop = rememberInfiniteTransition(label = "planet")
   // After the entrance on a cold start; right away when coming back, so the planet never sits still.
   val start = StartOffset(if (waitForEntrance) 1100 else 0)
   val drift = loop.animateFloat(-12f, 12f, infiniteRepeatable(tween(7_000, easing = Motion.EaseLoop), RepeatMode.Reverse, start), label = "drift")
   val squash = loop.animateFloat(0.8f, 1.2f, infiniteRepeatable(tween(5_000, easing = Motion.EaseLoop), RepeatMode.Reverse, start), label = "squash")
   val breathe = loop.animateFloat(1f, 1.02f, infiniteRepeatable(tween(4_500, easing = Motion.EaseLoop), RepeatMode.Reverse, start), label = "breathe")
-  return remember(drift, squash, breathe) { PlanetIdle(drift, squash, breathe) }
+  // The moons' loop: four minutes, linear; each moon goes round a whole number of times in it.
+  val orbit = loop.animateFloat(0f, 1f, infiniteRepeatable(tween(240_000, easing = LinearEasing), RepeatMode.Restart, start), label = "orbit")
+  return remember(drift, squash, breathe, orbit) { PlanetIdle(drift, squash, breathe, orbit) }
 }
 

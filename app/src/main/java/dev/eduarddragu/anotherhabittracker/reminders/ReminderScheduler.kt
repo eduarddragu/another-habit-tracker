@@ -62,7 +62,7 @@ class ReminderScheduler(private val context: Context) {
     scheduleRecap(now)
   }
 
-  /** The weekly recap, on Sunday evening. */
+  /** The weekly recap, on Monday morning. */
   fun scheduleRecap(now: ZonedDateTime = ZonedDateTime.now()) {
     val at = WeeklyRecap.nextAt(now.toLocalDateTime()).atZone(now.zone)
     val intent = Intent(context, RecapReceiver::class.java).setAction(RecapReceiver.ACTION_RECAP)

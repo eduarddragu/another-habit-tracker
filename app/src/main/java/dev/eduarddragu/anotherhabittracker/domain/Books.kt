@@ -53,6 +53,14 @@ object Books {
   /** How two titles are told apart: case and extra spaces don't make another book. */
   fun key(title: String): String = title.trim().replace(Regex("\\s+"), " ").lowercase()
 
+  /**
+   * Whether saving a session replaces a FINISHED mark of its day titled [markTitle]: the mark of its
+   * book, under the title it had before the edit ([previousTitle]) or the one it has now ([title]), so
+   * a book renamed while editing takes its mark along and other books' marks stay.
+   */
+  fun replacesMark(markTitle: String?, previousTitle: String?, title: String?): Boolean =
+    key(markTitle.orEmpty()) in listOfNotNull(previousTitle, title).map(::key)
+
   private class Open(var title: String, var author: String?, val started: LocalDate, var lastRead: LocalDate, var sessions: Int, var minutes: Int, var order: Int)
 
   fun shelf(records: List<LogRecord>): Shelf {

@@ -41,6 +41,10 @@ data class Habit(
   val weekendReminderTimes: String? = null,
   /** One tap starts a session this long, and the log form's presets are built around it; null means the kind's default (SessionTimer). Added in schema version 5. */
   val sessionMinutes: Int? = null,
+  /** The certification a study habit is preparing for (a Cert id, see domain Certs), if any. Added in schema version 7. */
+  val certId: String? = null,
+  /** The day of [certId]'s exam. Added in schema version 7. */
+  val examDate: LocalDate? = null,
 )
 
 /** A stretch of days off (see domain TimeOff); [end] null while open. Added in schema version 4. */
@@ -168,7 +172,7 @@ interface EntryDao {
   entities = [Habit::class, Entry::class, TimeOffRow::class],
   version = DB_SCHEMA,
   exportSchema = true,
-  autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5, spec = AddReading::class), AutoMigration(from = 5, to = 6, spec = AddChores::class)],
+  autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5, spec = AddReading::class), AutoMigration(from = 5, to = 6, spec = AddChores::class), AutoMigration(from = 6, to = 7)],
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -197,12 +201,7 @@ class AddReading : AutoMigrationSpec {
         arrayOf<Any>(habit.reminderTimes, habit.weekendReminderTimes!!, habit.name, first),
       )
     }
-    db.query("SELECT COUNT(*) FROM habits WHERE name = 'Reading'").use { if (it.moveToFirst() && it.getInt(0) > 0) return }
-    val position = db.query("SELECT COALESCE(MAX(position) + 1, 0) FROM habits").use { if (it.moveToFirst()) it.getInt(0) else 0 }
-    db.execSQL(
-      "INSERT INTO habits (name, kind, reminderTimes, linkedPackage, position, icon, weekendReminderTimes, sessionMinutes) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)",
-      arrayOf<Any>(READING.name, READING.kind.name, READING.reminderTimes, position, READING.icon!!, READING.weekendReminderTimes!!, READING.sessionMinutes!!),
-    )
+    insertOnce(db, READING)
   }
 }
 
@@ -213,13 +212,18 @@ class AddReading : AutoMigrationSpec {
  */
 class AddChores : AutoMigrationSpec {
   override fun onPostMigrate(db: SupportSQLiteDatabase) {
-    db.query("SELECT COUNT(*) FROM habits WHERE name = 'Chores'").use { if (it.moveToFirst() && it.getInt(0) > 0) return }
-    val position = db.query("SELECT COALESCE(MAX(position) + 1, 0) FROM habits").use { if (it.moveToFirst()) it.getInt(0) else 0 }
-    db.execSQL(
-      "INSERT INTO habits (name, kind, reminderTimes, linkedPackage, position, icon, weekendReminderTimes, sessionMinutes) VALUES (?, ?, ?, NULL, ?, ?, NULL, ?)",
-      arrayOf<Any>(CHORES.name, CHORES.kind.name, CHORES.reminderTimes, position, CHORES.icon!!, CHORES.sessionMinutes!!),
-    )
+    insertOnce(db, CHORES)
   }
+}
+
+/** Adds [habit] at the end of the list, unless one with its name is already there. */
+private fun insertOnce(db: SupportSQLiteDatabase, habit: Habit) {
+  db.query("SELECT COUNT(*) FROM habits WHERE name = ?", arrayOf(habit.name)).use { if (it.moveToFirst() && it.getInt(0) > 0) return }
+  val position = db.query("SELECT COALESCE(MAX(position) + 1, 0) FROM habits").use { if (it.moveToFirst()) it.getInt(0) else 0 }
+  db.execSQL(
+    "INSERT INTO habits (name, kind, reminderTimes, linkedPackage, position, icon, weekendReminderTimes, sessionMinutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    arrayOf<Any?>(habit.name, habit.kind.name, habit.reminderTimes, habit.linkedPackage, position, habit.icon, habit.weekendReminderTimes, habit.sessionMinutes),
+  )
 }
 
 // The habits as they're first set up. Weekdays stay off working hours (study from the end of the

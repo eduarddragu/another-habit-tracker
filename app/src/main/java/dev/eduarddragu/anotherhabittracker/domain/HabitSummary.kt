@@ -39,6 +39,8 @@ data class HabitSummary(
    * Home's line say so, to keep it from becoming two (see Freezes.slipped).
    */
   val slipped: Boolean = false,
+  /** When [slipped]: the streak that ended the day before yesterday, so its moon can fade (see Orbit). */
+  val lost: Int = 0,
   val stats: HabitStats,
   /** Heatmap cell for every day that has something logged. */
   val cells: Map<LocalDate, Cell>,
@@ -63,8 +65,9 @@ object HabitSummaries {
     // on a day later put inside time off is a day off: it gives the week's freeze back.
     val freezes = Freezes.counted(records.filter { it.type == EntryType.FREEZE }.map { it.day }.toSet(), sessionDays, paused)
     // Days off bridge the streak like freezes, without touching the week's freeze.
-    val pausedDays = paused - sessionDays
+    val pausedDays = TimeOff.withoutSessions(paused, records)
     val bridges = freezes + pausedDays
+    val slipped = Freezes.slipped(today, sessionDays, bridges)
     val cells =
       records
         // Marks (a known topic, a finished book) are not things done on a day.
@@ -85,11 +88,12 @@ object HabitSummaries {
       // A day off counts as empty here: a session done on it and logged past midnight still needs a way in.
       yesterdayEmpty = Freezes.yesterdayEmpty(today, sessionDays, freezes),
       yesterdayOff = today.minusDays(1) in pausedDays,
-      slipped = Freezes.slipped(today, sessionDays, bridges),
+      slipped = slipped,
+      lost = if (slipped) Streaks.current(sessionDays, bridges, today.minusDays(2)) else 0,
       stats = Stats.of(sessions.map { Session(it.day, it.score, it.minutes) }, bridges, today),
       cells = cells,
       daysOff = pausedDays,
-      pick = if (kind == HabitKind.STUDY) TopicPicker.pick(curriculum(), marks, today) else null,
+      pick = if (kind == HabitKind.STUDY) TopicPicker.pick(curriculum(), marks, today, pausedDays) else null,
       topicMarks = TopicPicker.latest(marks, today.plusDays(1)),
     )
   }

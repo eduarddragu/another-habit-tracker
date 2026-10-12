@@ -78,6 +78,7 @@ import dev.eduarddragu.anotherhabittracker.domain.BookDay
 import dev.eduarddragu.anotherhabittracker.domain.BookRead
 import dev.eduarddragu.anotherhabittracker.domain.BookSituation
 import dev.eduarddragu.anotherhabittracker.domain.Books
+import dev.eduarddragu.anotherhabittracker.domain.Certs
 import dev.eduarddragu.anotherhabittracker.domain.Chores
 import dev.eduarddragu.anotherhabittracker.domain.ChoresDay
 import dev.eduarddragu.anotherhabittracker.domain.Continuation
@@ -90,6 +91,7 @@ import dev.eduarddragu.anotherhabittracker.domain.Heatmap
 import dev.eduarddragu.anotherhabittracker.domain.Milestones
 import dev.eduarddragu.anotherhabittracker.domain.PickKind
 import dev.eduarddragu.anotherhabittracker.domain.TopicPicker
+import dev.eduarddragu.anotherhabittracker.domain.extraTopicIds
 import dev.eduarddragu.anotherhabittracker.domain.Practice
 import dev.eduarddragu.anotherhabittracker.domain.Practices
 import dev.eduarddragu.anotherhabittracker.domain.StudiedOn
@@ -112,10 +114,10 @@ import dev.eduarddragu.anotherhabittracker.ui.components.SectionLabel
 import dev.eduarddragu.anotherhabittracker.ui.components.StatBlock
 import dev.eduarddragu.anotherhabittracker.ui.components.TextAction
 import dev.eduarddragu.anotherhabittracker.reminders.Sessions
+import dev.eduarddragu.anotherhabittracker.reminders.endsAtClock
 import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
 import dev.eduarddragu.anotherhabittracker.domain.FocusSession
 import dev.eduarddragu.anotherhabittracker.ui.home.rememberSessionTick
-import dev.eduarddragu.anotherhabittracker.ui.home.endsAtClock
 import dev.eduarddragu.anotherhabittracker.ui.home.suggestedMinutes
 import dev.eduarddragu.anotherhabittracker.ui.home.SessionLabel
 import dev.eduarddragu.anotherhabittracker.ui.home.startSession
@@ -136,6 +138,9 @@ class HabitDetailViewModel(app: HabitApp, habitId: Long) : HabitViewModel(app, h
   fun markKnown(topicId: String, onMarked: (Set<String>) -> Unit) = once { onMarked(app.repository.markKnown(habitId, listOf(topicId))) }
 
   fun unmark(topicIds: Set<String>) = app.repository.undoKnown(habitId, topicIds)
+
+  /** The exam is passed: hands back the undo, or null when there was no cert. */
+  fun passCert(onPassed: ((() -> Unit)?) -> Unit) = once { onPassed(app.repository.passCert(habitId)?.let { (habit, marked) -> { app.repository.undoPassed(habit, marked) } }) }
 
   /**
    * Uses this week's freeze on the day before [shownToday], the day the page offered it for (around
@@ -244,6 +249,8 @@ fun HabitDetailScreen(
           viewModel.curriculum,
           onLog = onLog,
           onKnown = { id -> viewModel.markKnown(id) { marked -> if (marked.isNotEmpty()) onUndoable("Marked as known.") { viewModel.unmark(marked) } } },
+          onPassed = { viewModel.passCert { undo -> if (undo != null) onUndoable("Passed. Its topics are known now.", undo) } },
+          onSettings = onSettings,
           onKeepGoing = viewModel::keepGoing,
           onCurriculum = onCurriculum,
           onStart = if (session == null) { minutes -> startSession(app, status, minutes); onSessionStarted() } else null,
@@ -301,7 +308,8 @@ fun HabitDetailScreen(
     }
     val recent = status.recent.take(RECENT_LIMIT)
     // A deep dive: the history offers to keep going on the last session's topic instead of today's.
-    val keepGoing = if (study) Continuation.candidate(status.recent.map { StudiedOn(it.day, it.topicId) }, status.today, status.pick?.topic?.id) else null
+    // Never on a cert: it's the topic while it's on, and once passed it's over.
+    val keepGoing = if (study) Continuation.candidate(status.recent.map { StudiedOn(it.day, it.topicId) }, status.today, status.pick?.topic?.id)?.takeIf { id -> viewModel.curriculum.certs.none { it.id == id } } else null
     val keepGoingRow = keepGoing?.let { id -> recent.firstOrNull { it.topicId == id }?.id }
     // The session a book was finished with: the latest one of that book on that day.
     val finishedRows =
@@ -323,6 +331,7 @@ fun HabitDetailScreen(
           // A session opens in the log form; a freeze has nothing to edit, so it only offers removal.
           onClick = { if (entry.type == EntryType.FREEZE) removingFreeze = entry.id else onEditEntry(entry.id) },
           topic = if (shelf != null) entry.track else entry.topicId?.let { viewModel.curriculum.byId[it]?.title ?: it },
+          also = extraTopicIds(entry.extraTopics).map { viewModel.curriculum.byId[it]?.title ?: it },
           book = shelf != null,
           finished = entry.id in finishedRows,
           onKeepGoing = if (entry.id == keepGoingRow) ({ viewModel.keepGoing(keepGoing) }) else null,
@@ -572,6 +581,9 @@ private fun TodaysTopic(
   curriculum: Curriculum,
   onLog: () -> Unit,
   onKnown: (String) -> Unit,
+  /** The certification's exam is passed (see Certs). */
+  onPassed: () -> Unit,
+  onSettings: () -> Unit,
   onKeepGoing: (String?) -> Unit,
   onCurriculum: () -> Unit,
   /** Starts a session of [Int] minutes on today's topic; null when one is already running. */
@@ -616,14 +628,17 @@ private fun TodaysTopic(
         val state = if (status.doneToday) "DONE" else pickLabel(pick.kind)
         // The curriculum link sits on the label's line, top right: the actions below stay on one row.
         // Reviews waiting are the reason to open it, so it says how many.
-        val due = remember(status.topicMarks, status.today) { TopicPicker.dueReviews(curriculum, status.topicMarks.values.toList(), status.today).size }
+        val due = remember(status.topicMarks, status.today, status.summary.daysOff) { TopicPicker.dueReviews(curriculum, status.topicMarks.values.toList(), status.today, status.summary.daysOff).size }
         Row(Modifier.fillMaxWidth()) {
           Box(Modifier.weight(1f).alignByBaseline()) { CardLabel(lead = listOf("TOPIC"), state = state, trail = listOf(area)) }
           TextAction(if (due > 0) "$due due" else "Curriculum", onClick = onCurriculum, vertical = 4.dp, modifier = Modifier.alignByBaseline())
         }
         Text(pick.topic.title, style = MaterialTheme.typography.headlineSmall)
+        // A cert's first line is the countdown to the exam: a line of its own, not a question.
+        val cert = pick.kind == PickKind.CERT
+        if (cert) Text(pick.topic.hints.first(), style = MaterialTheme.typography.titleMedium)
         // The questions arrive one at a time.
-        NumberedSteps(pick.topic.hints, startDelay = if (pick.topic.id == firstTopic) 560L else 120L)
+        NumberedSteps(if (cert) pick.topic.hints.drop(1) else pick.topic.hints, startDelay = if (pick.topic.id == firstTopic) 560L else 120L)
         // A topic coming back: what happened last time, so the notes don't have to be dug out of Recent.
         if (pick.kind != PickKind.NEW) {
           status.recent.firstOrNull { it.type == EntryType.SESSION && it.topicId == pick.topic.id }?.let { last ->
@@ -645,7 +660,7 @@ private fun TodaysTopic(
           val ends = endsNow
           val minutesToLog = minutesNow
           when {
-            session != null && (sessionPhase == SessionPhase.RUNNING || sessionPhase == SessionPhase.PAUSED) -> {
+            session != null && (sessionPhase == SessionPhase.RUNNING || sessionPhase == SessionPhase.PAUSED || sessionPhase == SessionPhase.OVERTIME) -> {
               SessionLabel(sessionPhase, ends.orEmpty())
               TextAction("End", onClick = onEndSession, modifier = Modifier.padding(start = 12.dp))
             }
@@ -662,7 +677,7 @@ private fun TodaysTopic(
           }
           // Not once today is logged: it would swap out the topic just studied. Text actions, set off
           // from each other by 20dp like other actions on one line.
-          if (!status.doneToday) {
+          if (!status.doneToday && !cert) {
             TextAction(
               "I know this",
               onClick = {
@@ -674,6 +689,13 @@ private fun TodaysTopic(
           }
           if (status.focused && !status.doneToday) TextAction("Back to today's topic", onClick = { onKeepGoing(null) }, modifier = Modifier.padding(start = 12.dp))
         }
+        // From exam day: how it went, on a line of its own so the row above never wraps into it.
+        if (cert && Certs.examReached(status.habit.examDate, status.today)) {
+          Row {
+            TextAction("Passed it", onClick = onPassed)
+            TextAction("New date", onClick = onSettings, modifier = Modifier.padding(start = 20.dp))
+          }
+        }
       }
     }
   }
@@ -684,6 +706,7 @@ fun pickLabel(kind: PickKind) =
     PickKind.NEW -> "NEW"
     PickKind.REVIEW -> "REVIEW"
     PickKind.CONTINUE -> "CONTINUING"
+    PickKind.CERT -> "CERT"
   }
 
 @Composable
@@ -738,6 +761,8 @@ private fun EntryRow(
   study: Boolean,
   topic: String?,
   last: Boolean,
+  /** Other topics studied in the session, by title. */
+  also: List<String> = emptyList(),
   onClick: () -> Unit,
   modifier: Modifier = Modifier,
   onKeepGoing: (() -> Unit)? = null,
@@ -805,7 +830,7 @@ private fun EntryRow(
       } else {
         Text(if (frozen) "Frozen" else facts.joinToString(" · ").ifEmpty { "Done" }, style = MaterialTheme.typography.bodyLarge, color = if (frozen) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified)
       }
-      if (entry.extraTopics.isNotBlank()) Text("Also: ${entry.extraTopics}", style = MaterialTheme.typography.bodyMedium)
+      if (also.isNotEmpty()) Text("Also: ${also.joinToString(", ")}", style = MaterialTheme.typography.bodyMedium)
       if (entry.note.isNotBlank()) Text(entry.note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
   }

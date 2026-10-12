@@ -15,7 +15,7 @@ import org.junit.Test
 class BackupTest {
   private val habits =
     listOf(
-      Habit(id = 1, name = "Study", kind = HabitKind.STUDY, reminderTimes = "09:30,21:30", position = 0, icon = "BOOK"),
+      Habit(id = 1, name = "Study", kind = HabitKind.STUDY, reminderTimes = "09:30,21:30", position = 0, icon = "BOOK", certId = "cert-aws-saa-c03", examDate = LocalDate.of(2026, 12, 15)),
       Habit(id = 2, name = "Meditation", kind = HabitKind.SIMPLE, reminderTimes = "08:00", linkedPackage = "meditofoundation.medito", position = 1, weekendReminderTimes = "10:00,16:00", sessionMinutes = 20),
     )
   private val entries =
@@ -83,6 +83,7 @@ class BackupTest {
         "other app" to good.replace("\"another-habit-tracker\"", "\"some-other-app\""),
         "newer version" to good.replace("\"version\": ${Backups.VERSION}", "\"version\": 99"),
         "version zero" to good.replace("\"version\": ${Backups.VERSION}", "\"version\": 0"),
+        "unreadable exam date" to good.replace("\"examDate\": \"2026-12-15\"", "\"examDate\": \"soon\""),
         "no habits" to Backups.encode(backupOf(emptyList(), emptyList(), now, 21)),
         "duplicate habit ids" to good.replace("\"id\": 2,", "\"id\": 1,"),
         "duplicate entry ids" to good.replace("\"id\": 12,", "\"id\": 10,"),

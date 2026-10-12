@@ -39,7 +39,7 @@ Light and dark, both native. The light ones are here.
 | 4 | Could explain it properly | review in 30 days |
 | 5 | Could teach it | review in 90 days |
 
-Topics I already know can be marked as known, one at a time or a whole area at once. Reviews that are due show up first in the curriculum, weakest first. Meditation gets one small practice a day too, in three short steps.
+Topics I already know can be marked as known, one at a time or a whole area at once. Reviews that are due show up first in the curriculum, weakest first. Studying for a certification (AWS Solutions Architect Associate, for now) swaps the daily topic for the exam: a countdown to its date, the same log every day, and passing it marks its topics as known. Meditation gets one small practice a day too, in three short steps.
 
 **Keeps a reading list.** Twenty minutes of a paper book a day. Each session is logged with the book I'm on, "Finished it" closes it, and the habit's page keeps the shelf: what I'm reading and everything I've finished.
 
@@ -54,13 +54,13 @@ Topics I already know can be marked as known, one at a time or a whole area at o
 
 From the notification I can log, open a linked app (a meditation app, say), or say "On it" to silence the reminders for two hours. Not the last call, though.
 
-**Guards the streak.** The streak is the biggest number on the screen, with this week under it. One freeze a week covers a missed day. A session finished after midnight still lands on the right day. After eight weeks a GitHub-style heatmap shows up, and on Sunday evening a short recap closes the week.
+**Guards the streak.** The streak is the biggest number on the screen, with this week under it. One freeze a week covers a missed day. A session finished after midnight still lands on the right day. After eight weeks a GitHub-style heatmap shows up, and on Monday morning a short recap closes the week before.
 
-**Opens on a planet.** Home greets me by the time of day ("Still up, Eduard?") with a line for the day, a small planet in the middle and the habit cards below. One tap on the planet starts a session: it turns into a timer, with the topic and its questions still on screen. When time's up, the log opens with the minutes filled in.
+**Opens on a planet.** Home greets me by the time of day ("Still up, Eduard?") with a line for the day, a small planet in the middle and the habit cards below. One tap on the planet starts a session: it turns into a timer, with the topic and its questions still on screen. When time's up it chimes and keeps counting the extra ("+5") until I end it, then the log opens with the minutes filled in.
 
-**Takes time off with me.** Days off don't break the streak and nothing nags: no reminders, no guard, no recap.
+**Takes time off with me.** Days off don't break the streak and nothing nags: no reminders, no guard, no recap. Reviews wait too, instead of piling up for the return.
 
-**Guards the feed.** An optional scroll guard stops Instagram (or any app I pick) while a habit is still open: what's left, the days at stake, and a button straight to the habit. It's a soft block: "Ten minutes, then I'm out" lets me through, then it asks again. It's an accessibility service that only learns which app is in front, never what's on screen.
+**Guards the feed.** An optional scroll guard stops Instagram (or any app I pick) while a habit is still open: what's left, the days at stake, and a button straight to the habit. It's a soft block: "Ten minutes, then I'm out" lets me through, then it asks again, and every five more minutes take longer to unlock (5 seconds, a minute, then three). It's an accessibility service that only learns which app is in front, never what's on screen.
 
 **Sits on the home screen.** A "Today" widget shows what's done, what's left and the streaks.
 

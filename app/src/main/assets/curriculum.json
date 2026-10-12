@@ -1803,5 +1803,37 @@
         "Profiling the heap with pprof"
       ]
     }
+  ],
+  "certs": [
+    {
+      "id": "cert-aws-saa-c03",
+      "code": "SAA-C03",
+      "name": "AWS Solutions Architect Associate",
+      "area": "aws",
+      "grants": [
+        "aws-global-infra",
+        "aws-iam",
+        "aws-organizations",
+        "aws-vpc",
+        "aws-vpc-connectivity",
+        "aws-ec2",
+        "aws-ebs",
+        "aws-elb",
+        "aws-route53",
+        "aws-s3",
+        "aws-kms",
+        "aws-rds-aurora",
+        "aws-dynamodb",
+        "aws-messaging",
+        "aws-lambda",
+        "aws-observability"
+      ],
+      "hints": [
+        "Which section today? Put it in the log's details.",
+        "Without the slides: what did it cover, and when would you pick each service?",
+        "Which exam scenario would trip you up here?",
+        "A practice test? Put the score in the log's details."
+      ]
+    }
   ]
 }

@@ -24,6 +24,17 @@ class TopicPickerTest {
   }
 
   @Test
+  fun daysOffPushReviewsForward() {
+    val c = curriculum(topic("root"))
+    // Scored 2 four days ago: due today, unless two of those days were off.
+    val marks = listOf(mark("root", 2, 4))
+    val off = setOf(day.minusDays(2), day.minusDays(1))
+    assertEquals(day.plusDays(2), TopicPicker.dueDate(marks[0], off))
+    assertEquals(1, TopicPicker.dueReviews(c, marks, day).size)
+    assertTrue(TopicPicker.dueReviews(c, marks, day, off).isEmpty())
+  }
+
+  @Test
   fun scoreThreeUnlocksDependents() {
     val c = curriculum(topic("root"), topic("child", "a", "root"))
     val pick = TopicPicker.pick(c, listOf(mark("root", 3, 1)), day)!!

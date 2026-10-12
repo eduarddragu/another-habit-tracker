@@ -126,7 +126,7 @@ class GuardActivity : ComponentActivity() {
         app.guard.recordBlock(today)
         counted = true
       }
-      content = GuardContent(appName, text, stakes.streak, open, ScrollGuard.grantLabel(budget), waitSeconds = if (budget.grants >= 1) GRANT_WAIT_SECONDS else 0)
+      content = GuardContent(appName, text, stakes.streak, open, ScrollGuard.grantLabel(budget), waitSeconds = ScrollGuard.waitSeconds(budget.grants))
     }
   }
 
@@ -157,9 +157,6 @@ class GuardActivity : ComponentActivity() {
   companion object {
     private const val EXTRA_PACKAGE = "package"
     private const val EXTRA_PREVIEW = "preview"
-
-    /** After the first grant of the day, the next ones take a few seconds to become tappable. */
-    private const val GRANT_WAIT_SECONDS = 3
 
     fun intent(context: Context, pkg: String, preview: Boolean = false): Intent =
       Intent(context, GuardActivity::class.java)
@@ -227,7 +224,7 @@ private fun GuardScreen(content: GuardContent, onDoIt: () -> Unit, onGrant: () -
       // Leaving on the left, more time on the right; with large text the second wraps under the first.
       FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         TextAction("Close ${content.appName}", onClick = onLeave, color = colors.onSurfaceVariant)
-        TextAction(if (wait > 0) "${content.grantLabel} ($wait)" else content.grantLabel, onClick = onGrant, enabled = wait == 0)
+        TextAction(if (wait > 0) "${content.grantLabel} (${if (wait >= 60) "%d:%02d".format(wait / 60, wait % 60) else wait})" else content.grantLabel, onClick = onGrant, enabled = wait == 0)
       }
     }
   }

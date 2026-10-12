@@ -42,6 +42,12 @@ object Descriptions {
   /** "12 days in a row", the streak number and its caption read as one. */
   fun streak(days: Int): String = "${dayCount(days)} in a row"
 
+  /** "Moons: Study, 7 days; Chores, 3 days, fading": what the planet's moons stand for, null with none. */
+  fun moons(moons: List<Pair<String, Orbit.Moon>>): String? =
+    moons.takeIf { it.isNotEmpty() }?.joinToString("; ", prefix = "Moons: ") { (name, moon) ->
+      "$name, ${dayCount(Milestones.days[moon.stage - 1])}" + if (moon.fading) ", fading" else ""
+    }
+
   private fun state(cell: Cell?, off: Boolean, today: Boolean): String =
     when {
       cell is Cell.Done -> "done"

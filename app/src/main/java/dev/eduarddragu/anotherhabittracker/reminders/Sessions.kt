@@ -12,9 +12,20 @@ import dev.eduarddragu.anotherhabittracker.domain.FocusSession
 import dev.eduarddragu.anotherhabittracker.domain.SessionKind
 import dev.eduarddragu.anotherhabittracker.domain.SessionPhase
 import dev.eduarddragu.anotherhabittracker.domain.SessionTimer
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+
+/** When the session ends on the wall clock; in extra time, when it ran out. */
+fun endWall(session: FocusSession, now: Long): Long = System.currentTimeMillis() + session.remaining(now) - session.overtime(now)
+
+private val ENDS_FORMAT = DateTimeFormatter.ofPattern("HH:mm")
+
+/** [endWall] as a clock time, "16:40": the session label and the notification. */
+fun endsAtClock(session: FocusSession, now: Long): String = Instant.ofEpochMilli(endWall(session, now)).atZone(ZoneId.systemDefault()).toLocalTime().format(ENDS_FORMAT)
 
 /**
  * Every change to the focus session goes through here: the store, then the notification (a countdown
@@ -38,6 +49,9 @@ object Sessions {
   fun extend(app: HabitApp) = change(app) { it.extend(app.sessions.now()) }
 
   fun end(app: HabitApp) = change(app) { it.finish(app.sessions.now()) }
+
+  /** The length ran out: a chime, and the session keeps counting the extra time until End. */
+  fun timeUp(app: HabitApp) = apply(app, chime = true) { it }
 
   /**
    * Ended by the midnight refresh (a session from an earlier day, paused or past its end): the end
@@ -78,8 +92,9 @@ object Sessions {
   // One change at a time: the UI and the notification buttons run on the main thread, but receivers
   // (reboot, midnight) run in the background, and two finishes at once would chime twice.
   // [keepHidden]: not a change made by hand, so a countdown swiped away stays away.
+  // [chime]: the time-up alarm, which rings even with the countdown swiped away.
   @Synchronized
-  private fun apply(app: HabitApp, keepHidden: Boolean = false, quiet: Boolean = false, transform: (FocusSession?) -> FocusSession?) {
+  private fun apply(app: HabitApp, keepHidden: Boolean = false, quiet: Boolean = false, chime: Boolean = false, transform: (FocusSession?) -> FocusSession?) {
     val before = app.sessions.session.value
     val after = transform(before)
     val hidden = keepHidden && app.sessions.hidden
@@ -93,8 +108,12 @@ object Sessions {
     val topic = after.topicId?.let { app.repository.curriculum.byId[it] }
     when (after.phase(now)) {
       SessionPhase.RUNNING -> {
-        armAlarm(app, after.endsAt(now))
+        armAlarm(app, after.endsAt(now), timeUpIntent(app))
         if (!hidden) Notifications.showSession(app, after, topic, now)
+      }
+      SessionPhase.OVERTIME -> {
+        armAlarm(app, after.capAt(now), endIntent(app))
+        if (!hidden || chime) Notifications.showSession(app, after, topic, now, chime)
       }
       SessionPhase.PAUSED -> if (!hidden) Notifications.showSession(app, after, topic, now)
       // The chime only once, when it goes from counting to over. The countdown goes first, so it
@@ -102,21 +121,28 @@ object Sessions {
       SessionPhase.FINISHED ->
         if (before?.finishedAt == null) {
           Notifications.dismissSession(app)
-          Notifications.showSessionEnd(app, after, topic, now, silent = quiet)
+          // Ended by hand in extra time: the time-up chime already rang. Ended by the cap, it rings.
+          Notifications.showSessionEnd(app, after, topic, now, silent = quiet || before?.phase(now) == SessionPhase.OVERTIME)
         }
     }
   }
 
   @SuppressLint("MissingPermission")
-  private fun armAlarm(context: Context, atElapsed: Long) {
+  private fun armAlarm(context: Context, atElapsed: Long, intent: PendingIntent) {
     val alarms = context.getSystemService(AlarmManager::class.java)
-    if (alarms.canScheduleExactAlarms()) alarms.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, atElapsed, endIntent(context))
-    else alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, atElapsed, endIntent(context))
+    if (alarms.canScheduleExactAlarms()) alarms.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, atElapsed, intent)
+    else alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, atElapsed, intent)
   }
 
-  private fun cancelAlarm(context: Context) = context.getSystemService(AlarmManager::class.java).cancel(endIntent(context))
+  private fun cancelAlarm(context: Context) {
+    val alarms = context.getSystemService(AlarmManager::class.java)
+    alarms.cancel(endIntent(context))
+    alarms.cancel(timeUpIntent(context))
+  }
 
   private fun endIntent(context: Context) = action(context, SessionReceiver.ACTION_END, REQUEST_ALARM)
+
+  private fun timeUpIntent(context: Context) = action(context, SessionReceiver.ACTION_TIME_UP, REQUEST_ALARM)
 
   fun action(context: Context, action: String, request: Int): PendingIntent =
     PendingIntent.getBroadcast(context, request, Intent(context, SessionReceiver::class.java).setAction(action), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -137,6 +163,7 @@ class SessionReceiver : BroadcastReceiver() {
       try {
         when (intent.action) {
           ACTION_END -> Sessions.end(app)
+          ACTION_TIME_UP -> Sessions.timeUp(app)
           ACTION_PAUSE -> Sessions.pause(app)
           ACTION_RESUME -> Sessions.resume(app)
           ACTION_EXTEND -> Sessions.extend(app)
@@ -154,6 +181,8 @@ class SessionReceiver : BroadcastReceiver() {
     private val inOrder = Dispatchers.Default.limitedParallelism(1)
 
     const val ACTION_END = "dev.eduarddragu.anotherhabittracker.SESSION_END"
+    /** The length ran out: the chime, then the extra time counts on. */
+    const val ACTION_TIME_UP = "dev.eduarddragu.anotherhabittracker.SESSION_TIME_UP"
     const val ACTION_PAUSE = "dev.eduarddragu.anotherhabittracker.SESSION_PAUSE"
     const val ACTION_RESUME = "dev.eduarddragu.anotherhabittracker.SESSION_RESUME"
     const val ACTION_EXTEND = "dev.eduarddragu.anotherhabittracker.SESSION_EXTEND"

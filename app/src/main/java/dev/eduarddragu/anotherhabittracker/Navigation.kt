@@ -12,6 +12,10 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -142,54 +146,58 @@ fun MainNavigation(
   }
 
   Scaffold(contentWindowInsets = WindowInsets(0), snackbarHost = { SnackbarHost(snackbar, Modifier.navigationBarsPadding()) { Snackbar(it, shape = MaterialTheme.shapes.medium) } }) { padding ->
-    NavDisplay(
-      modifier = Modifier.padding(padding),
-      backStack = backStack,
-      onBack = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
-      entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
-      transitionSpec = { push() },
-      popTransitionSpec = { pop() },
-      predictivePopTransitionSpec = { predictivePop() },
-      entryProvider =
-        entryProvider {
-          entry<Home> {
-            HomeScreen(
-              app = app,
-              notificationsEnabled = notificationsEnabled,
-              deliveryProblems = deliveryProblems,
-              onEnableNotifications = onEnableNotifications,
-              onOpen = { show(HabitDetail(it)) },
-              onBackup = { show(Backup) },
-              onGuard = { show(Guard) },
-              onTimeOff = { show(TimeOffKey) },
-              onLogSession = { habitId, minutes, day -> show(LogEntry(habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
-              onUndoable = ::undoable,
-              modifier = screen,
-            )
-          }
-          entry<HabitDetail> { key ->
-            HabitDetailScreen(
-              app = app,
-              habitId = key.habitId,
-              onLog = { show(LogEntry(key.habitId)) },
-              onSettings = { show(HabitSettings(key.habitId)) },
-              onCurriculum = { show(CurriculumBrowser(key.habitId)) },
-              onEditEntry = { show(LogEntry(key.habitId, it)) },
-              onLogOnDay = { show(LogEntry(key.habitId, onDay = it.toEpochDay())) },
-              onSessionStarted = { while (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
-              onLogMinutes = { minutes, day -> show(LogEntry(key.habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
-              onUndoable = ::undoable,
-              onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } },
-              modifier = screen,
-            )
-          }
-          entry<Backup> { BackupScreen(app = app, modifier = screen) }
-          entry<Guard> { GuardSettingsScreen(app = app, modifier = screen) }
-          entry<TimeOffKey> { TimeOffScreen(app = app, onUndoable = ::undoable, modifier = screen) }
-          entry<CurriculumBrowser> { key -> CurriculumScreen(app = app, habitId = key.habitId, onUndoable = ::undoable, modifier = screen) }
-          entry<LogEntry>(metadata = sheetMetadata) { key -> LogScreen(app = app, habitId = key.habitId, entryId = key.entryId, onDay = key.onDay, prefillMinutes = key.minutes, onDone = { finish(key, it) }, onDoneUndoable = { message, undo -> finish(key, null); undoable(message, undo) }, modifier = screen) }
-          entry<HabitSettings> { key -> HabitSettingsScreen(app = app, habitId = key.habitId, onDone = { finish(key, it) }, modifier = screen) }
-        },
-    )
+    Box {
+      NavDisplay(
+        modifier = Modifier.padding(padding),
+        backStack = backStack,
+        onBack = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
+        entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
+        transitionSpec = { push() },
+        popTransitionSpec = { pop() },
+        predictivePopTransitionSpec = { predictivePop() },
+        entryProvider =
+          entryProvider {
+            entry<Home> {
+              HomeScreen(
+                app = app,
+                notificationsEnabled = notificationsEnabled,
+                deliveryProblems = deliveryProblems,
+                onEnableNotifications = onEnableNotifications,
+                onOpen = { show(HabitDetail(it)) },
+                onBackup = { show(Backup) },
+                onGuard = { show(Guard) },
+                onTimeOff = { show(TimeOffKey) },
+                onLogSession = { habitId, minutes, day -> show(LogEntry(habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
+                onUndoable = ::undoable,
+                modifier = screen,
+              )
+            }
+            entry<HabitDetail> { key ->
+              HabitDetailScreen(
+                app = app,
+                habitId = key.habitId,
+                onLog = { show(LogEntry(key.habitId)) },
+                onSettings = { show(HabitSettings(key.habitId)) },
+                onCurriculum = { show(CurriculumBrowser(key.habitId)) },
+                onEditEntry = { show(LogEntry(key.habitId, it)) },
+                onLogOnDay = { show(LogEntry(key.habitId, onDay = it.toEpochDay())) },
+                onSessionStarted = { while (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
+                onLogMinutes = { minutes, day -> show(LogEntry(key.habitId, onDay = day.takeIf { it != app.repository.today().toEpochDay() }, minutes = minutes)) },
+                onUndoable = ::undoable,
+                onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } },
+                modifier = screen,
+              )
+            }
+            entry<Backup> { BackupScreen(app = app, modifier = screen) }
+            entry<Guard> { GuardSettingsScreen(app = app, modifier = screen) }
+            entry<TimeOffKey> { TimeOffScreen(app = app, onUndoable = ::undoable, modifier = screen) }
+            entry<CurriculumBrowser> { key -> CurriculumScreen(app = app, habitId = key.habitId, onUndoable = ::undoable, modifier = screen) }
+            entry<LogEntry>(metadata = sheetMetadata) { key -> LogScreen(app = app, habitId = key.habitId, entryId = key.entryId, onDay = key.onDay, prefillMinutes = key.minutes, onDone = { finish(key, it) }, onDoneUndoable = { message, undo -> finish(key, null); undoable(message, undo) }, modifier = screen) }
+            entry<HabitSettings> { key -> HabitSettingsScreen(app = app, habitId = key.habitId, onDone = { finish(key, it) }, onUndoable = ::undoable, modifier = screen) }
+          },
+      )
+      // Content scrolls under the status bar: a strip of background keeps the clock and icons readable.
+      Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(MaterialTheme.colorScheme.background))
+    }
   }
 }

@@ -61,8 +61,6 @@ class SessionStore(private val context: Context) {
     _session.value = session
   }
 
-  fun update(change: (FocusSession) -> FocusSession?) = _session.value?.let { set(change(it)) }
-
   private fun load(): FocusSession? {
     if (!prefs.contains("habit")) return null
     // Same boot: the saved times are on today's clock. After a reboot, they move with it.

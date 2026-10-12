@@ -54,7 +54,7 @@ private suspend fun remind(context: Context, app: HabitApp, habit: Habit, slot: 
   if (!status.summary.dayOpen) return
   // In a session on it right now: no nagging. A paused one doesn't count: paused and forgotten, the
   // reminders (the last call above all) are what's left to save the day.
-  app.sessions.session.value?.let { if (it.habitId == habit.id && it.day == status.today && it.phase(app.sessions.now()) == SessionPhase.RUNNING) return }
+  app.sessions.session.value?.let { if (it.habitId == habit.id && it.day == status.today && it.phase(app.sessions.now()).let { phase -> phase == SessionPhase.RUNNING || phase == SessionPhase.OVERTIME }) return }
   val tone = ReminderPlan.tone(slot, times.size)
   if (ReminderPlan.quieted(tone, System.currentTimeMillis(), app.quiet.until(habit.id))) return
   // Study reminders talk about today's topic and open with its first guiding question; meditation
@@ -232,25 +232,31 @@ class NotificationActionReceiver : BroadcastReceiver() {
   }
 }
 
-/** Sunday evening: the week in one notification, then the next one is set. */
+/** Monday morning: last week in one notification, then the next one is set. */
 class RecapReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     if (intent.action != ACTION_RECAP) return
     runAsync(context) { app ->
       app.scheduler.scheduleRecap()
-      val statuses = app.repository.statuses()
-      // On time off, no recap: the week isn't one to report on.
-      if (statuses.isEmpty() || statuses.any { it.summary.pausedToday }) return@runAsync
-      val habits =
-        statuses.map { status ->
-          RecapHabit(status.habit.name, status.habit.kind, status.recent.map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId) }, status.streak, status.since)
-        }
-      val curriculum = app.repository.curriculum
-      Notifications.showRecap(context, WeeklyRecap.build(habits, app.repository.today(), app.repository.daysOff()) { curriculum.byId[it]?.title })
+      postRecap(app)
     }
   }
 
   companion object {
     const val ACTION_RECAP = "dev.eduarddragu.anotherhabittracker.RECAP"
   }
+}
+
+/** Monday morning: the week that ended yesterday. */
+private suspend fun postRecap(app: HabitApp) {
+  val statuses = app.repository.statuses()
+  val lastDay = app.repository.today().minusDays(1)
+  val daysOff = app.repository.daysOff()
+  if (statuses.isEmpty() || WeeklyRecap.skip(statuses.any { it.summary.pausedToday }, daysOff, lastDay)) return
+  val habits =
+    statuses.map { status ->
+      RecapHabit(status.habit.name, status.habit.kind, status.recent.map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId) }, status.streak, status.since)
+    }
+  val curriculum = app.repository.curriculum
+  Notifications.showRecap(app, WeeklyRecap.build(habits, lastDay, daysOff) { curriculum.byId[it]?.title })
 }

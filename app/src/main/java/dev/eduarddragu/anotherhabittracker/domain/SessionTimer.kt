@@ -3,9 +3,13 @@ package dev.eduarddragu.anotherhabittracker.domain
 import java.time.LocalDate
 import kotlin.random.Random
 
-/** Where a session is: counting down, paused, or over (ran out or ended) and waiting to be logged. */
+/**
+ * Where a session is: counting down, past its length and counting the extra time, paused, or over
+ * (ended, or the extra time ran out) and waiting to be logged.
+ */
 enum class SessionPhase {
   RUNNING,
+  OVERTIME,
   PAUSED,
   FINISHED,
 }
@@ -55,19 +59,27 @@ data class FocusSession(
   val totalMillis: Long
     get() = plannedMillis + extendedMillis
 
+  /** The most it counts: its length, then up to [SessionTimer.OVERTIME_MILLIS] of extra time. */
+  val capMillis: Long
+    get() = totalMillis + SessionTimer.OVERTIME_MILLIS
+
   fun phase(now: Long): SessionPhase =
     when {
       finishedAt != null -> SessionPhase.FINISHED
       pausedAt != null -> SessionPhase.PAUSED
-      remaining(now) <= 0 -> SessionPhase.FINISHED
-      else -> SessionPhase.RUNNING
+      remaining(now) > 0 -> SessionPhase.RUNNING
+      elapsed(now) < capMillis -> SessionPhase.OVERTIME
+      else -> SessionPhase.FINISHED
     }
 
   /** Time actually counted: wall time since the start, minus the pauses, frozen once finished. */
   fun elapsed(now: Long): Long {
     val until = finishedAt ?: pausedAt ?: now
-    return (until - startedAt - pausedTotalMillis).coerceIn(0, totalMillis)
+    return (until - startedAt - pausedTotalMillis).coerceIn(0, capMillis)
   }
+
+  /** Time counted past its length: the "+5" once the time is up. */
+  fun overtime(now: Long): Long = (elapsed(now) - totalMillis).coerceAtLeast(0)
 
   fun remaining(now: Long): Long = (totalMillis - elapsed(now)).coerceAtLeast(0)
 
@@ -77,6 +89,9 @@ data class FocusSession(
   /** When it ends on the same clock, if it keeps running from [now]. */
   fun endsAt(now: Long): Long = now + remaining(now)
 
+  /** When the extra time runs out on the same clock, if it keeps running from [now]. */
+  fun capAt(now: Long): Long = now + capMillis - elapsed(now)
+
   fun pause(now: Long): FocusSession = if (phase(now) == SessionPhase.RUNNING) copy(pausedAt = now) else this
 
   /** Nothing to resume once it's over: a stale Resume must not shrink the time counted. */
@@ -84,8 +99,8 @@ data class FocusSession(
 
   fun extend(now: Long, millis: Long = SessionTimer.EXTEND_MILLIS): FocusSession =
     when (phase(now)) {
-      // Finished by running out: five more minutes pick up from now, not from the old end.
-      SessionPhase.FINISHED -> {
+      // Over or in extra time: five more minutes pick up from now, not from the old end.
+      SessionPhase.FINISHED, SessionPhase.OVERTIME -> {
         val elapsedSoFar = elapsed(now)
         copy(extendedMillis = elapsedSoFar - plannedMillis + millis, finishedAt = null, pausedAt = null, pausedTotalMillis = now - startedAt - elapsedSoFar)
       }
@@ -93,21 +108,21 @@ data class FocusSession(
     }
 
   /**
-   * Ends it: at the pause if paused, else now, but never past the natural end (the alarm can arrive
-   * late, and those minutes weren't studied).
+   * Ends it: at the pause if paused, else now, but never past the end of the extra time (the alarm can
+   * arrive late, and those minutes weren't studied).
    */
   fun finish(now: Long): FocusSession =
-    if (finishedAt != null) this else copy(finishedAt = pausedAt ?: minOf(now, startedAt + pausedTotalMillis + totalMillis))
+    if (finishedAt != null) this else copy(finishedAt = pausedAt ?: minOf(now, startedAt + pausedTotalMillis + capMillis))
 
   /**
    * Ended by the midnight refresh: a session from an earlier day left paused (or past its end with the
-   * alarm lost). One still running carries on past midnight and ends on its own alarm.
+   * alarm lost). One still running, or in its extra time, carries on past midnight and ends on its own alarm.
    */
-  fun endsAtMidnight(today: LocalDate, now: Long): Boolean = finishedAt == null && day < today && phase(now) != SessionPhase.RUNNING
+  fun endsAtMidnight(today: LocalDate, now: Long): Boolean = finishedAt == null && day < today && phase(now).let { it == SessionPhase.PAUSED || it == SessionPhase.FINISHED }
 
   /**
-   * The minutes to put in the log form: the full length when it ran out, whole minutes done when it
-   * was ended early, nothing when it was too short to count (see SessionTimer.minimumMinutes).
+   * The minutes to put in the log form: whole minutes done, extra time included, nothing when it was
+   * too short to count (see SessionTimer.minimumMinutes).
    */
   fun minutesToLog(now: Long): Int? {
     val minutes = (elapsed(now) / 60_000).toInt()
@@ -118,18 +133,27 @@ data class FocusSession(
   fun shifted(millis: Long): FocusSession =
     if (millis == 0L) this else copy(startedAt = startedAt + millis, pausedAt = pausedAt?.plus(millis), finishedAt = finishedAt?.plus(millis))
 
-  /** What the disc shows: minutes left rounded up, or seconds in the last minute. */
+  /**
+   * What the disc shows: minutes left rounded up, or seconds in the last minute; in extra time, the
+   * seconds then whole minutes past the end; once over, the minutes done.
+   */
   fun display(now: Long): SessionTimer.Display {
     val left = remaining(now)
-    return if (left < 60_000 && phase(now) != SessionPhase.FINISHED) SessionTimer.Display(((left + 999) / 1000).toInt(), seconds = true)
-    else if (phase(now) == SessionPhase.FINISHED) SessionTimer.Display((elapsed(now) / 60_000).toInt(), seconds = false)
-    else SessionTimer.Display(((left + 59_999) / 60_000).toInt(), seconds = false)
+    val extra = overtime(now)
+    return when (phase(now)) {
+      SessionPhase.FINISHED -> SessionTimer.Display((elapsed(now) / 60_000).toInt(), seconds = false)
+      SessionPhase.OVERTIME -> if (extra < 60_000) SessionTimer.Display((extra / 1000).toInt(), seconds = true) else SessionTimer.Display((extra / 60_000).toInt(), seconds = false)
+      else -> if (left < 60_000) SessionTimer.Display(((left + 999) / 1000).toInt(), seconds = true) else SessionTimer.Display(((left + 59_999) / 60_000).toInt(), seconds = false)
+    }
   }
 }
 
 object SessionTimer {
   const val EXTEND_MILLIS = 5 * 60_000L
   const val MIN_LOG_MINUTES = 5
+
+  /** Extra time counted after the end until End is tapped; then it ends by itself (a forgotten phone doesn't log hours). */
+  const val OVERTIME_MILLIS = 60 * 60_000L
 
   /**
    * The least a session must run to count: [MIN_LOG_MINUTES], or half the planned length when that's
@@ -230,7 +254,12 @@ object SessionTimer {
     val pool = lines.getValue(session.kind)
     return when (session.phase(now)) {
       SessionPhase.PAUSED -> pool.paused
-      SessionPhase.FINISHED -> if (session.minutesToLog(now) == null) "Too short to count. Next time." else if (session.remaining(now) > 0) "Short one. Still counts." else pool.over
+      SessionPhase.OVERTIME -> "Time's up. Keep going if it flows."
+      SessionPhase.FINISHED ->
+        if (session.minutesToLog(now) == null) "Too short to count. Next time."
+        else if (session.remaining(now) > 0) "Short one. Still counts."
+        else if (session.overtime(now) >= 60_000) "About ${session.overtime(now) / 60_000} min more than planned. Nice."
+        else pool.over
       SessionPhase.RUNNING ->
         if (session.remaining(now) <= windDownMillis(session)) {
           if (session.kind == SessionKind.STUDY && windDownMillis(session) == 5 * 60_000L) "Five minutes. Finish the thought." else pool.windDown

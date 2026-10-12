@@ -43,6 +43,14 @@ object ScrollGuard {
   /** Suggested when the guard is first turned on and no app is chosen yet. */
   const val DEFAULT_PACKAGE = "com.instagram.android"
 
+  /**
+   * How long the way through stays locked: the first grant of the day is free, then each one takes
+   * longer to unlock (5 s, a minute, then three), so giving in costs more every time.
+   */
+  fun waitSeconds(grantsSoFar: Int): Int = WAITS.getOrElse(grantsSoFar) { WAITS.last() }
+
+  private val WAITS = listOf(0, 5, 60, 180)
+
   fun grantMillis(grantsSoFar: Int): Long = (if (grantsSoFar == 0) FIRST_GRANT_MINUTES else MORE_GRANT_MINUTES) * 60_000L
 
   /** The guard only speaks while something is still open today and no time is left in the budget. */
