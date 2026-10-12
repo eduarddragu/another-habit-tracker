@@ -51,7 +51,7 @@ object Sessions {
   fun end(app: HabitApp) = change(app) { it.finish(app.sessions.now()) }
 
   /** The length ran out: a chime, and the session keeps counting the extra time until End. */
-  fun timeUp(app: HabitApp) = apply(app, chime = true) { it }
+  fun timeUp(app: HabitApp) = apply(app, chime = true) { current -> current?.let { if (it.phase(app.sessions.now()) == SessionPhase.FINISHED) it.finish(app.sessions.now()) else it } }
 
   /**
    * Ended by the midnight refresh (a session from an earlier day, paused or past its end): the end
@@ -122,7 +122,8 @@ object Sessions {
         if (before?.finishedAt == null) {
           Notifications.dismissSession(app)
           // Ended by hand in extra time: the time-up chime already rang. Ended by the cap, it rings.
-          Notifications.showSessionEnd(app, after, topic, now, silent = quiet || before?.phase(now) == SessionPhase.OVERTIME)
+          // A session from an earlier day (forgotten past midnight) ends without waking anyone.
+          Notifications.showSessionEnd(app, after, topic, now, silent = quiet || before?.phase(now) == SessionPhase.OVERTIME || after.day < app.repository.today())
         }
     }
   }

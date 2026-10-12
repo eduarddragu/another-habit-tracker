@@ -172,10 +172,11 @@ class SessionTimerTest {
     assertEquals("today's", false, session(30).pause(start).endsAtMidnight(day, start + 10 * min))
   }
 
-  // A reboot: saved at [savedElapsed] on the old boot's clock, read [later] wall time after, [sinceBoot] into the new boot.
+  // A reboot, as SessionStore reads it back: saved at [savedElapsed] on the old boot's clock, read
+  // [later] wall time after, [sinceBoot] into the new boot.
   private fun afterReboot(saved: FocusSession, savedElapsed: Long, later: Long, sinceBoot: Long = 2 * min): FocusSession {
     val wall = 1_800_000_000_000L
-    return saved.shifted(SessionTimer.rebootShift(sameBoot = false, savedWall = wall, savedElapsed = savedElapsed, nowWall = wall + later, nowElapsed = sinceBoot))
+    return saved.shifted(SessionTimer.rebootShift(sameBoot = false, savedWall = wall, savedElapsed = savedElapsed, nowWall = wall + later, nowElapsed = sinceBoot)).afterReboot(sinceBoot)
   }
 
   @Test
@@ -186,11 +187,18 @@ class SessionTimerTest {
   }
 
   @Test
-  fun aRebootPastTheCapFinishesItCapped() {
+  fun aRebootPastTheCapFinishesItAtItsLength() {
     val s = afterReboot(session(30), savedElapsed = start, later = 200 * min)
     assertEquals(SessionPhase.FINISHED, s.phase(2 * min))
-    assertEquals(90 * min, s.elapsed(2 * min))
-    assertEquals(90, s.minutesToLog(2 * min))
+    assertEquals(30, s.minutesToLog(2 * min))
+  }
+
+  @Test
+  fun timeWithThePhoneOffIsNeverExtraTime() {
+    // Off at minute 25, back 50 minutes after the save: no "+20 MIN EXTRA" nobody studied.
+    val s = afterReboot(session(30), savedElapsed = start + 25 * min, later = 50 * min)
+    assertEquals(SessionPhase.FINISHED, s.phase(2 * min))
+    assertEquals(30, s.minutesToLog(2 * min))
   }
 
   @Test

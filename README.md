@@ -56,7 +56,7 @@ From the notification I can log, open a linked app (a meditation app, say), or s
 
 **Guards the streak.** The streak is the biggest number on the screen, with this week under it. One freeze a week covers a missed day. A session finished after midnight still lands on the right day. After eight weeks a GitHub-style heatmap shows up, and on Monday morning a short recap closes the week before.
 
-**Opens on a planet.** Home greets me by the time of day ("Still up, Eduard?") with a line for the day, a small planet in the middle and the habit cards below. One tap on the planet starts a session: it turns into a timer, with the topic and its questions still on screen. When time's up it chimes and keeps counting the extra ("+5") until I end it, then the log opens with the minutes filled in.
+**Opens on a planet.** Home greets me by the time of day ("Still up, Eduard?") with a line for the day, a small planet in the middle and the habit cards below. One tap on the planet starts a session: it turns into a timer, with the topic and its questions still on screen. When time's up it chimes and keeps counting the extra ("+5") until I end it, and the log takes the minutes as they were.
 
 **Takes time off with me.** Days off don't break the streak and nothing nags: no reminders, no guard, no recap. Reviews wait too, instead of piling up for the return.
 

@@ -26,6 +26,15 @@ class WeeklyRecapTest {
   }
 
   @Test
+  fun aHabitFirstLoggedAfterTheWeekStaysOut() {
+    // Added during the week, first logged on Monday morning before the recap: no "0 of 0 days".
+    val sunday = LocalDate.of(2027, 1, 3)
+    val meditation = RecapHabit("Meditation", HabitKind.SIMPLE, listOf(session(sunday.minusDays(1), 10)), streak = 1, since = sunday.minusDays(1))
+    val reading = RecapHabit("Reading", HabitKind.SIMPLE, listOf(session(sunday.plusDays(1), 20)), streak = 1, since = sunday.plusDays(1))
+    assertTrue(WeeklyRecap.build(listOf(meditation, reading), sunday) { null }.body.lines().none { it.startsWith("Reading") })
+  }
+
+  @Test
   fun aHabitNeverLoggedStaysOutOfTheRecap() {
     val sunday = LocalDate.of(2027, 1, 3)
     val meditation = RecapHabit("Meditation", HabitKind.SIMPLE, listOf(session(sunday.minusDays(1), 10)), streak = 1, since = sunday.minusDays(1))

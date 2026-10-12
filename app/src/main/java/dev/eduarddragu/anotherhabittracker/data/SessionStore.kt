@@ -64,7 +64,8 @@ class SessionStore(private val context: Context) {
   private fun load(): FocusSession? {
     if (!prefs.contains("habit")) return null
     // Same boot: the saved times are on today's clock. After a reboot, they move with it.
-    val shift = SessionTimer.rebootShift(prefs.getInt("boot", -1) == bootCount(), prefs.getLong("wall", 0), prefs.getLong("elapsed", 0), System.currentTimeMillis(), now())
+    val sameBoot = prefs.getInt("boot", -1) == bootCount()
+    val shift = SessionTimer.rebootShift(sameBoot, prefs.getLong("wall", 0), prefs.getLong("elapsed", 0), System.currentTimeMillis(), now())
     fun time(key: String) = if (prefs.contains(key)) prefs.getLong(key, 0) else null
     return runCatching {
       FocusSession(
@@ -82,6 +83,7 @@ class SessionStore(private val context: Context) {
         kind = prefs.getString("kind", null)?.let { name -> SessionKind.entries.firstOrNull { it.name == name } } ?: SessionKind.guess(prefs.getString("topic", null)),
       )
         .shifted(shift)
+        .let { if (sameBoot) it else it.afterReboot(now()) }
     }.getOrNull()
   }
 

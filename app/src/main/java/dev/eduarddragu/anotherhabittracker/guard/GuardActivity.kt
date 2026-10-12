@@ -45,6 +45,7 @@ import dev.eduarddragu.anotherhabittracker.MainActivity
 import dev.eduarddragu.anotherhabittracker.data.HabitStatus
 import dev.eduarddragu.anotherhabittracker.domain.GuardText
 import dev.eduarddragu.anotherhabittracker.domain.HabitKind
+import dev.eduarddragu.anotherhabittracker.domain.PickKind
 import dev.eduarddragu.anotherhabittracker.domain.ScrollGuard
 import dev.eduarddragu.anotherhabittracker.reminders.Notifications
 import dev.eduarddragu.anotherhabittracker.reminders.resolveLinkedApp
@@ -180,7 +181,8 @@ private fun GuardScreen(content: GuardContent, onDoIt: () -> Unit, onGrant: () -
   BackHandler(onBack = onLeave)
   val arrival = rememberArrival(4, delayOf = { Motion.STAGGER * it.toLong() }, durationOf = { Motion.ENTRANCE })
   val colors = MaterialTheme.colorScheme
-  val topic = content.open.firstNotNullOfOrNull { it.pick?.topic }
+  val pick = content.open.firstNotNullOfOrNull { it.pick }
+  val topic = pick?.topic
   var wait by remember(content) { mutableIntStateOf(content.waitSeconds) }
   LaunchedEffect(content) {
     while (wait > 0) {
@@ -213,7 +215,7 @@ private fun GuardScreen(content: GuardContent, onDoIt: () -> Unit, onGrant: () -
       }
       if (topic != null) {
         DayCard(done = false, modifier = Modifier.rise(arrival[2], 16.dp)) {
-          CardLabel(lead = listOf("TOPIC"), state = "TODAY")
+          CardLabel(lead = listOf(if (pick?.kind == PickKind.CERT) "EXAM" else "TOPIC"), state = "TODAY")
           Text(topic.title, style = MaterialTheme.typography.headlineSmall)
         }
       }

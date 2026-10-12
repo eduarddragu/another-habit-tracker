@@ -52,6 +52,8 @@ object WeeklyRecap {
         (0 until daysSoFar)
           .map { start.plusDays(it.toLong()) }
           .count { day -> day in dayList || (day !in paused && (habit.since == null || !day.isBefore(habit.since))) }
+      // First logged after the week (this morning, before the recap): nothing of that week to show.
+      if (possible == 0) continue
       val minutes = sessions.sumOf { it.minutes ?: 0 }
       doneDays += days
       possibleDays += possible
@@ -61,8 +63,8 @@ object WeeklyRecap {
       val average = if (habit.kind == HabitKind.STUDY && scores.isNotEmpty()) ", average ${"%.1f".format(java.util.Locale.ENGLISH, scores.average())}" else ""
       lines += "${habit.name}: $days of $possible days$time$average."
       if (habit.kind == HabitKind.STUDY) {
-        sessions.filter { it.score != null && it.topicId != null }.minByOrNull { it.score!! }?.takeIf { it.score!! <= 2 }?.let { worst ->
-          topicTitle(worst.topicId!!)?.let { lines += "Toughest: $it (${worst.score}/5). It'll be back." }
+        sessions.filter { it.score != null && it.topicId?.let(topicTitle) != null }.minByOrNull { it.score!! }?.takeIf { it.score!! <= 2 }?.let { worst ->
+          lines += "Toughest: ${topicTitle(worst.topicId!!)} (${worst.score}/5). Due again soon."
         }
       }
     }

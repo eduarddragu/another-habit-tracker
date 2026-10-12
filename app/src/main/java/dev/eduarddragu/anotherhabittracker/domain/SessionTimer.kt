@@ -115,6 +115,13 @@ data class FocusSession(
     if (finishedAt != null) this else copy(finishedAt = pausedAt ?: minOf(now, startedAt + pausedTotalMillis + capMillis))
 
   /**
+   * After a reboot: the minutes the phone was off count toward its length (it may have run on), but
+   * never as extra time, which needs someone there to end it. Past its length, it ends at its length.
+   */
+  fun afterReboot(now: Long): FocusSession =
+    if (finishedAt == null && pausedAt == null && elapsed(now) > totalMillis) copy(finishedAt = startedAt + pausedTotalMillis + totalMillis) else this
+
+  /**
    * Ended by the midnight refresh: a session from an earlier day left paused (or past its end with the
    * alarm lost). One still running, or in its extra time, carries on past midnight and ends on its own alarm.
    */

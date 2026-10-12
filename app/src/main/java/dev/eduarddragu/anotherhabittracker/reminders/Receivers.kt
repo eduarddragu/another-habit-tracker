@@ -8,9 +8,11 @@ import dev.eduarddragu.anotherhabittracker.HabitApp
 import dev.eduarddragu.anotherhabittracker.data.Entry
 import dev.eduarddragu.anotherhabittracker.data.Habit
 import dev.eduarddragu.anotherhabittracker.domain.Books
+import dev.eduarddragu.anotherhabittracker.domain.Certs
 import dev.eduarddragu.anotherhabittracker.domain.Chores
 import dev.eduarddragu.anotherhabittracker.domain.EntryType
 import dev.eduarddragu.anotherhabittracker.domain.LogRecord
+import dev.eduarddragu.anotherhabittracker.domain.PickKind
 import dev.eduarddragu.anotherhabittracker.domain.Practices
 import dev.eduarddragu.anotherhabittracker.domain.Tone
 import dev.eduarddragu.anotherhabittracker.domain.RecapHabit
@@ -74,7 +76,8 @@ private suspend fun remind(context: Context, app: HabitApp, habit: Habit, slot: 
       day = status.today,
       slot = slot,
       openingBody = topic?.hints?.firstOrNull() ?: practice?.steps?.firstOrNull() ?: book?.line ?: chores,
-      nudgeBody = chores ?: book?.line,
+      // From exam day on, the nudges ask how it went instead of pushing more study.
+      nudgeBody = chores ?: book?.line ?: Certs.countdown(habit.examDate, status.today).takeIf { status.pick?.kind == PickKind.CERT && Certs.examReached(habit.examDate, status.today) },
       slipped = status.summary.slipped,
       minutes = minutes,
     )
@@ -258,5 +261,5 @@ private suspend fun postRecap(app: HabitApp) {
       RecapHabit(status.habit.name, status.habit.kind, status.recent.map { LogRecord(it.day, it.type, it.score, it.minutes, it.topicId) }, status.streak, status.since)
     }
   val curriculum = app.repository.curriculum
-  Notifications.showRecap(app, WeeklyRecap.build(habits, lastDay, daysOff) { curriculum.byId[it]?.title })
+  Notifications.showRecap(app, WeeklyRecap.build(habits, lastDay, daysOff) { curriculum.topicById[it]?.title })
 }

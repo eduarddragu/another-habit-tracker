@@ -1829,10 +1829,10 @@
         "aws-observability"
       ],
       "hints": [
-        "Which section today? Put it in the log's details.",
+        "Which section today? Put it under Module or chapter in the log.",
         "Without the slides: what did it cover, and when would you pick each service?",
         "Which exam scenario would trip you up here?",
-        "A practice test? Put the score in the log's details."
+        "A practice test? Put its result in the log's notes."
       ]
     }
   ]

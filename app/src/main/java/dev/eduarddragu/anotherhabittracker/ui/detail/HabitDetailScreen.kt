@@ -625,13 +625,14 @@ private fun TodaysTopic(
           return@Column
         }
         val area = (curriculum.areaById[pick.topic.area]?.name ?: pick.topic.area).uppercase()
-        val state = if (status.doneToday) "DONE" else pickLabel(pick.kind)
+        val state = if (status.doneToday) "DONE" else if (pick.kind == PickKind.CERT) "TODAY" else pickLabel(pick.kind)
         // The curriculum link sits on the label's line, top right: the actions below stay on one row.
         // Reviews waiting are the reason to open it, so it says how many.
         val due = remember(status.topicMarks, status.today, status.summary.daysOff) { TopicPicker.dueReviews(curriculum, status.topicMarks.values.toList(), status.today, status.summary.daysOff).size }
         Row(Modifier.fillMaxWidth()) {
-          Box(Modifier.weight(1f).alignByBaseline()) { CardLabel(lead = listOf("TOPIC"), state = state, trail = listOf(area)) }
-          TextAction(if (due > 0) "$due due" else "Curriculum", onClick = onCurriculum, vertical = 4.dp, modifier = Modifier.alignByBaseline())
+          // While on a cert, reviews wait for it to end: a count that only grows would read as a backlog.
+          Box(Modifier.weight(1f).alignByBaseline()) { CardLabel(lead = listOf(if (pick.kind == PickKind.CERT) "EXAM" else "TOPIC"), state = state, trail = listOf(area)) }
+          TextAction(if (due > 0 && pick.kind != PickKind.CERT) "$due due" else "Curriculum", onClick = onCurriculum, vertical = 4.dp, modifier = Modifier.alignByBaseline())
         }
         Text(pick.topic.title, style = MaterialTheme.typography.headlineSmall)
         // A cert's first line is the countdown to the exam: a line of its own, not a question.
@@ -706,7 +707,7 @@ fun pickLabel(kind: PickKind) =
     PickKind.NEW -> "NEW"
     PickKind.REVIEW -> "REVIEW"
     PickKind.CONTINUE -> "CONTINUING"
-    PickKind.CERT -> "CERT"
+    PickKind.CERT -> "EXAM"
   }
 
 @Composable

@@ -343,7 +343,9 @@ fun LogScreen(
                 Text("COULD TEACH IT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
               }
             } else {
-              Text(TopicPicker.scoreMeaning(picked), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+              // A cert has no review dates: it stays the topic until the exam, whatever the score.
+              val meaning = if (viewModel.curriculum.certs.any { it.id == topicId }) "${TopicPicker.scoreLabel(picked)}. It stays your topic until you pass." else TopicPicker.scoreMeaning(picked)
+              Text(meaning, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
           }
         }
